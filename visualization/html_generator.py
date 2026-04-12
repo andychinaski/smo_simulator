@@ -39,6 +39,20 @@ def _fmt_policy(policy: Any) -> str:
     return _esc(policy)
 
 
+def _fmt_num(x: Any, digits: int = 6) -> str:
+    try:
+        if x is None:
+            return "—"
+        if isinstance(x, bool):
+            return _fmt_bool(x)
+        if isinstance(x, int):
+            return str(x)
+        v = float(x)
+        return f"{v:.{digits}f}"
+    except Exception:
+        return _dash(x)
+
+
 def _to_int(x: Any, default: int = 0) -> int:
     try:
         if x is None:
@@ -55,6 +69,48 @@ def _to_float(x: Any) -> Optional[float]:
         return float(x)
     except Exception:
         return None
+
+
+def _render_kv_table(rows: List[Tuple[str, Any]]) -> str:
+    trs = []
+    for k, v in rows:
+        trs.append(f"<tr><td class='k'>{_esc(k)}</td><td class='v'>{_dash(v) if not isinstance(v, (int, float)) else _esc(v)}</td></tr>")
+    return "<table class='compact-table kv-table'><tbody>" + "".join(trs) + "</tbody></table>"
+
+
+# short names for calculations keys (same keys as in calculations_tab)
+CALC_METRIC_NAMES: Dict[str, str] = {
+    "p_served": "Pобс (вероятность обслуживания)",
+    "throughput": "A (пропускная способность)",
+    "p_refuse": "Pотк (вероятность отказа)",
+    "p_busy_1": "P1 (занят 1 канал)",
+    "p_busy_2": "P2 (заняты 2 канала)",
+    "avg_busy_channels": "Nск (ср. занятых каналов)",
+    "p_idle_at_least1": "P*1 (простой ≥1 канала)",
+    "p_idle_2": "P*2 (простой 2 каналов)",
+    "p_idle_system": "P*c (простой системы)",
+    "avg_queue_len": "Nсз (ср. длина очереди)",
+    "p_queue_1": "P1з (очередь=1)",
+    "p_queue_2": "P2з (очередь=2)",
+    "avg_wait_time": "Tож (ср. ожидание)",
+    "avg_service_time": "Tобсл (ср. обслуживание)",
+    "avg_system_time": "Tсист (ср. в системе)",
+    "avg_system_count": "Nсист (ср. заявок в системе)",
+}
+
+
+def _format_warmup(warmup: Any) -> str:
+    if not isinstance(warmup, dict):
+        return "—"
+    mode = str(warmup.get("mode", "none"))
+    value = warmup.get("value", 0)
+    if mode == "none":
+        return "Нет"
+    if mode == "hours":
+        return f"Пропустить первые {value} часов"
+    if mode == "arrivals":
+        return f"Пропустить первые {value} заявок"
+    return f"{mode}={value}"
 
 
 # ---------------- build lanes (servers) ----------------
@@ -243,6 +299,9 @@ def build_html_from_saved_result(saved: Dict[str, Any]) -> str:
     if not isinstance(config, dict):
         raise ValueError("В файле нет корректного поля 'config'")
 
+    summary = saved.get("summary") if isinstance(saved.get("summary"), dict) else None
+    calculations = saved.get("calculations") if isinstance(saved.get("calculations"), dict) else None
+
     reqs = saved.get("requests") or []
     if not isinstance(reqs, list):
         reqs = []
@@ -260,6 +319,7 @@ def build_html_from_saved_result(saved: Dict[str, Any]) -> str:
     if not isinstance(operators, list):
         operators = []
 
+    # compact operators table
     operators_rows = []
     for op in operators:
         if not isinstance(op, dict):
@@ -272,17 +332,70 @@ def build_html_from_saved_result(saved: Dict[str, Any]) -> str:
             "</tr>"
         )
     operators_table = (
-        "<table>"
+        "<table class='compact-table'>"
         "<thead><tr>"
-        "<th>Тип канала</th>"
-        "<th>Скорость обслуживания μ (заявок/час)</th>"
-        "<th>Количество</th>"
+        "<th>Тип</th>"
+        "<th>μ (заявок/час)</th>"
+        "<th>Кол-во</th>"
         "</tr></thead>"
         "<tbody>"
         + ("".join(operators_rows) if operators_rows else "<tr><td colspan='3'>—</td></tr>")
         + "</tbody></table>"
     )
 
+    # summary block
+    if summary:
+        summary_table = _render_kv_table([
+            ("Пришло заявок", summary.get("arrivals")),
+            ("Обслужено", summary.get("served")),
+            ("Отказов", summary.get("refused")),
+        ])
+    else:
+        summary_table = "<div class='muted'>Нет данных summary (файл сразу после симуляции может не содержать этот блок).</div>"
+
+    # calculations block (optional)
+    if calculations:
+        warm = _format_warmup(calculations.get("warmup"))
+        selected_metrics = calculations.get("selected_metrics") or []
+        results = calculations.get("results") or {}
+        if not isinstance(selected_metrics, list):
+            selected_metrics = []
+        if not isinstance(results, dict):
+            results = {}
+
+        rows = []
+        for k in selected_metrics:
+            name = CALC_METRIC_NAMES.get(str(k), str(k))
+            v = results.get(k)
+            rows.append((name, _fmt_num(v, 6) if isinstance(v, (int, float)) else ("—" if v is None else _dash(v))))
+
+        if rows:
+            calc_table = "<table class='compact-table'><thead><tr><th>Показатель</th><th>Значение</th></tr></thead><tbody>"
+            calc_table += "".join(f"<tr><td>{_esc(a)}</td><td>{_esc(b)}</td></tr>" for a, b in rows)
+            calc_table += "</tbody></table>"
+        else:
+            calc_table = "<div class='muted'>Показатели не выбраны или результатов нет.</div>"
+
+        calculations_html = (
+            f"<div class='muted' style='margin-bottom:6px;'>Warm-up: <b>{_esc(warm)}</b></div>"
+            f"{calc_table}"
+        )
+    else:
+        calculations_html = "<div class='muted'>Нет данных calculations (это нормально, если файл сохранён сразу после симуляции).</div>"
+
+    # model params compact table
+    params_table = _render_kv_table([
+        ("λ, заявок/час", call_flow),
+        ("Размер очереди", queue_size),
+        ("Длительность, часов", duration),
+        ("Политика канала", _fmt_policy(free_server_policy)),
+        ("Drain", _fmt_bool(drain)),
+        ("Seed", seed if seed not in (None, "", "None") else "—"),
+        ("start_at_zero", _fmt_bool(start_at_zero)),
+        ("max_arrivals", max_arrivals if max_arrivals not in (None, "", "None") else "—"),
+    ])
+
+    # lanes for chart
     server_names = _expand_server_names_from_config(config)
     observed_servers = sorted({
         str((r.get("server_name") or "Неизвестно"))
@@ -344,10 +457,10 @@ def build_html_from_saved_result(saved: Dict[str, Any]) -> str:
     refused = [( _to_int(r.get("id", 0), 0), _to_float(r.get("t_refuse")) ) for r in reqs]
     refused = [(rid, t) for rid, t in refused if t is not None]
 
-    # ---- chart sizing (NO internal X padding in SVG -> padding done by HTML, non-scaling) ----
+    # ---- chart sizing ----
     PX_PER_HOUR = 35
     BASE_W_MIN = 1200
-    base_w = max(BASE_W_MIN, int(t_range * PX_PER_HOUR))  # viewBox width == "chart width"
+    base_w = max(BASE_W_MIN, int(t_range * PX_PER_HOUR))
 
     TOP_MARGIN = 10
     LANE_H = 26
@@ -376,7 +489,6 @@ def build_html_from_saved_result(saved: Dict[str, Any]) -> str:
     lane_index: Dict[str, int] = {name: i for i, name in enumerate(lanes)}
     svg_h = TOP_MARGIN + len(lanes) * (LANE_H + LANE_GAP) + BOTTOM_PAD
 
-    # viewBox coords per hour
     scale = base_w / t_range
     chart_x0 = 0.0
     chart_x1 = float(base_w)
@@ -474,7 +586,6 @@ def build_html_from_saved_result(saved: Dict[str, Any]) -> str:
     svg_parts.extend(connector_parts)
     svg_parts.append('</g>')
 
-    # markers & segments
     yy_arr = lane_center(arr_lane)
     for rid, t in arrivals:
         cx = x(t)
@@ -533,12 +644,8 @@ def build_html_from_saved_result(saved: Dict[str, Any]) -> str:
     svg_parts.append("</svg>")
     svg_str = "\n".join(svg_parts)
 
-    # ZOOM CONFIG (for JS UI)
-    # discrete "nice" zoom values to avoid 12.23565 etc.
-    zoom_stops = [
-        0.25, 0.33, 0.5, 0.67, 0.75, 1.0, 1.25, 1.5, 2.0, 2.5,
-        3.0, 4.0, 5.0, 6.0, 8.0, 10.0, 12.0, 15.0
-    ]
+    # zoom UI
+    zoom_stops = [0.25, 0.33, 0.5, 0.67, 0.75, 1.0, 1.25, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 6.0, 8.0, 10.0, 12.0, 15.0]
     zoom_min = 0.25
     zoom_max = 15.0
 
@@ -554,44 +661,59 @@ def build_html_from_saved_result(saved: Dict[str, Any]) -> str:
     }}
     body {{
       font-family: Arial, sans-serif;
-      margin: 24px;
+      margin: 18px 24px;
       color: #222;
     }}
-    h1 {{ margin: 0 0 12px 0; }}
-    .section {{ margin-top: 18px; }}
+    h1 {{ margin: 0 0 10px 0; }}
+    h2 {{ margin: 0 0 8px 0; font-size: 15px; }}
+    .muted {{ color:#666; font-size:12px; }}
 
-    table {{
+    /* top info grid */
+    .top-grid {{
+      display: grid;
+      grid-template-columns: 1fr 420px;
+      gap: 14px;
+      align-items: start;
+    }}
+    @media (max-width: 1100px) {{
+      .top-grid {{ grid-template-columns: 1fr; }}
+    }}
+    .col {{
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }}
+    .card {{
+      border: 1px solid #ddd;
+      background: #fbfbfb;
+      padding: 10px;
+    }}
+
+    /* compact tables */
+    .compact-table {{
       border-collapse: collapse;
       width: 100%;
-      max-width: 1000px;
+      font-size: 12px;
+      background: #fff;
     }}
-    th, td {{
-      border: 1px solid #ccc;
-      padding: 8px 10px;
+    .compact-table th, .compact-table td {{
+      border: 1px solid #ddd;
+      padding: 4px 6px;
       text-align: left;
       vertical-align: top;
     }}
-    th {{ background: #f3f3f3; }}
-
-    .kv {{
-      max-width: 1000px;
-      padding: 12px;
-      border: 1px solid #ddd;
-      background: #fbfbfb;
+    .compact-table th {{
+      background: #f3f3f3;
+      font-weight: 600;
     }}
-    .kv div {{ margin: 6px 0; }}
-    .k {{
-      display: inline-block;
-      min-width: 360px;
-      color: #555;
+    .kv-table td.k {{ width: 58%; color:#555; }}
+    .kv-table td.v {{ width: 42%; }}
+
+    .section {{
+      margin-top: 14px;
     }}
 
-    .note {{
-      color: #666;
-      font-size: 12px;
-      margin-top: 6px;
-    }}
-
+    /* timeline controls + layout */
     .timeline-controls {{
       display: flex;
       align-items: center;
@@ -623,7 +745,6 @@ def build_html_from_saved_result(saved: Dict[str, Any]) -> str:
       background: #fff;
       max-width: 100%;
     }}
-
     .lane-labels {{
       flex: 0 0 auto;
       border-right: 1px solid #ddd;
@@ -639,47 +760,57 @@ def build_html_from_saved_result(saved: Dict[str, Any]) -> str:
       overflow: hidden;
       text-overflow: ellipsis;
     }}
-
     .timeline-scroll {{
       flex: 1 1 auto;
       overflow-x: auto;
       overflow-y: hidden;
     }}
 
-    /* keep text/circles stable under horizontal zoom */
     #timelineSvg .no-xscale {{
       transform: scaleX(var(--invZoom));
       transform-origin: center;
       transform-box: fill-box;
     }}
 
-    /* Non-scaling left/right margins (do not zoom): */
     .timeline-svg-wrap {{
-      padding: 10px 50px; /* IMPORTANT: JS uses WRAP_PAD_X=50 */
+      padding: 10px 50px;
       display: inline-block;
+    }}
+
+    .note {{
+      color: #666;
+      font-size: 12px;
+      margin-top: 6px;
     }}
   </style>
 </head>
 <body>
   <h1>Визуализация СМО</h1>
 
-  <div class="section">
-    <h2>Параметры модели</h2>
-    <div class="kv">
-      <div><span class="k">Интенсивность потока заявок (λ), заявок/час:</span> {_dash(call_flow)}</div>
-      <div><span class="k">Размер очереди (макс. заявок в ожидании):</span> {_dash(queue_size)}</div>
-      <div><span class="k">Длительность моделирования, часов:</span> {_dash(duration)}</div>
-      <div><span class="k">Политика выбора свободного канала:</span> {_fmt_policy(free_server_policy)}</div>
-      <div><span class="k">Доработать хвост после duration (drain):</span> {_fmt_bool(drain)}</div>
-      <div><span class="k">Seed (воспроизводимость):</span> {_dash(seed)}</div>
-      <div><span class="k">Первая заявка в момент t = 0 (start_at_zero):</span> {_fmt_bool(start_at_zero)}</div>
-      <div><span class="k">Ограничение числа заявок (max_arrivals):</span> {_dash(max_arrivals)}</div>
-    </div>
-  </div>
+  <div class="top-grid">
+    <div class="col">
+      <div class="card">
+        <h2>Параметры модели</h2>
+        {params_table}
+      </div>
 
-  <div class="section">
-    <h2>Каналы обслуживания</h2>
-    {operators_table}
+      <div class="card">
+        <h2>Каналы обслуживания</h2>
+        {operators_table}
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="card">
+        <h2>Сводка (summary)</h2>
+        {summary_table}
+      </div>
+
+      <div class="card">
+        <h2>Расчёты (calculations)</h2>
+        {calculations_html}
+      </div>
+    </div>
   </div>
 
   <div class="section">
@@ -753,7 +884,6 @@ def build_html_from_saved_result(saved: Dict[str, Any]) -> str:
 
       const svg = document.getElementById('timelineSvg');
       const scroll = document.getElementById('timelineScroll');
-      const wrap = document.getElementById('timelineWrap');
 
       const zoomValue = document.getElementById('zoomValue');
       const zoomSlider = document.getElementById('zoomSlider');
@@ -767,7 +897,6 @@ def build_html_from_saved_result(saved: Dict[str, Any]) -> str:
       const gMajor = document.getElementById('gridMajor');
       const gLabels = document.getElementById('gridLabels');
 
-      // must match CSS padding-right/left in .timeline-svg-wrap
       const WRAP_PAD_X = 50;
 
       function clamp(v, lo, hi) {{ return Math.max(lo, Math.min(hi, v)); }}
@@ -917,7 +1046,6 @@ def build_html_from_saved_result(saved: Dict[str, Any]) -> str:
 
         const eps = 1e-8;
 
-        // minor
         let tm = niceCeil(t0, minorStep);
         for (let guard = 0; guard < 200000; guard++) {{
           if (tm > t1 + eps) break;
@@ -932,7 +1060,6 @@ def build_html_from_saved_result(saved: Dict[str, Any]) -> str:
           tm += minorStep;
         }}
 
-        // major + labels
         let tM = niceCeil(t0, majorStep);
         for (let guard = 0; guard < 200000; guard++) {{
           if (tM > t1 + eps) break;
@@ -945,7 +1072,6 @@ def build_html_from_saved_result(saved: Dict[str, Any]) -> str:
         }}
       }}
 
-      // throttle grid updates
       let rafPending = false;
       function scheduleGridUpdate() {{
         if (rafPending) return;
@@ -969,7 +1095,6 @@ def build_html_from_saved_result(saved: Dict[str, Any]) -> str:
         const oldWidth = baseWidth * oldZoom;
         const newWidth = baseWidth * newZoom;
 
-        // keep center relative to SVG content, ignoring fixed padding
         let centerFrac = 0.0;
         if (keepCenter) {{
           const centerPx = (scroll.scrollLeft - WRAP_PAD_X) + scroll.clientWidth / 2;
@@ -992,18 +1117,15 @@ def build_html_from_saved_result(saved: Dict[str, Any]) -> str:
         scheduleGridUpdate();
       }}
 
-      // buttons use discrete nice stops
       btnIn.addEventListener('click', () => applyZoom(nextStop(zoom), true));
       btnOut.addEventListener('click', () => applyZoom(prevStop(zoom), true));
       btnReset.addEventListener('click', () => applyZoom(1.0, false));
 
-      // slider -> exact stop
       zoomSlider.addEventListener('input', () => {{
         const idx = parseInt(zoomSlider.value, 10) || 0;
         applyZoom(ZOOM_STOPS[Math.max(0, Math.min(ZOOM_STOPS.length-1, idx))], true);
       }});
 
-      // manual input
       function applyFromInput() {{
         const v = parseFloat(zoomInput.value);
         if (!isFinite(v)) {{
@@ -1020,11 +1142,9 @@ def build_html_from_saved_result(saved: Dict[str, Any]) -> str:
         }}
       }});
 
-      // re-render grid on scroll/resize
       scroll.addEventListener('scroll', scheduleGridUpdate, {{ passive: true }});
       window.addEventListener('resize', scheduleGridUpdate);
 
-      // init
       applyZoom(1.0, false);
     }})();
   </script>
