@@ -13,5 +13,10 @@
             "mu": 3,
             "count": 1
         }
-    ]
+    ],
+    "free_server_policy": "round_robin",
+    "drain": false,
+    "seed": null,
+    "start_at_zero": true,
+    "max_arrivals": null
 }
