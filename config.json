@@ -1,17 +1,17 @@
 {
-    "call_flow": 75,
+    "call_flow": 20,
     "queue_size": 5,
-    "duration": 100,
+    "duration": 10,
     "operators": [
         {
             "type": "Специалист",
             "mu": 6,
-            "count": 5
+            "count": 1
         },
         {
             "type": "Ведущий специалист",
             "mu": 7,
-            "count": 3
+            "count": 1
         },
         {
             "type": "Эксперт",

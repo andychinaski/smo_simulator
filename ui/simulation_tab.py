@@ -1,3 +1,4 @@
+# ui/simulation_tab.py
 from __future__ import annotations
 
 import copy
@@ -28,6 +29,17 @@ class SimulationTab(QWidget):
     - запуск симуляции
     - вывод результатов
     - сохранение результатов симуляции в JSON (появляется кнопка после запуска)
+
+    Формат сохранения:
+    {
+      "config": {...},
+      "summary": {
+        "arrivals": 7620,
+        "served": 5735,
+        "refused": 1885
+      },
+      "requests": [...]
+    }
     """
 
     open_settings_requested = Signal()
@@ -60,7 +72,6 @@ class SimulationTab(QWidget):
         self.save_button = QPushButton("Сохранить результаты")
         self.save_button.clicked.connect(self.save_results_as)
         self.save_button.setVisible(False)  # появляется только после успешной симуляции
-
         layout.addWidget(self.save_button)
 
         buttons_layout = QHBoxLayout()
@@ -82,7 +93,7 @@ class SimulationTab(QWidget):
         self._config = config
         self.params.update_view(config)
 
-        # Если конфиг изменился — считаем, что старые результаты не актуальны
+        # если конфиг изменился — старые результаты считаем неактуальными
         self._last_result = None
         self._last_config_snapshot = None
         self.save_button.setVisible(False)
@@ -106,8 +117,7 @@ class SimulationTab(QWidget):
         try:
             res = simulate(self._config)
             self._last_result = res
-            # фиксируем конфиг именно на момент запуска симуляции
-            self._last_config_snapshot = copy.deepcopy(self._config)
+            self._last_config_snapshot = copy.deepcopy(self._config)  # фиксируем конфиг на момент запуска
         except Exception as e:
             self.simulation_failed.emit(str(e))
             return
@@ -139,23 +149,21 @@ class SimulationTab(QWidget):
 
         self.set_results_text("\n".join(lines))
 
-        # показываем кнопку сохранения результатов
         self.save_button.setVisible(True)
-
         self.simulation_finished.emit(res)
 
     # --------------------------
 
     def _build_export_payload(self) -> Dict[str, Any]:
-        """
-        Формат сохранения:
-        - config: конфиг с параметрами
-        - requests: данные по заявкам:
-            id, t_arrival, t_service_start, server_name, t_service_end,
-            t_queue_enter, t_refuse
-        """
         if self._last_result is None or self._last_config_snapshot is None:
             raise RuntimeError("Нет результатов симуляции для сохранения")
+
+        # summary только из 3 полей (как вы хотите)
+        summary = {
+            "arrivals": int(self._last_result.stats.get("total_arrivals", 0)),
+            "served": int(self._last_result.stats.get("served", 0)),
+            "refused": int(self._last_result.stats.get("refused", 0)),
+        }
 
         reqs = []
         for r in self._last_result.requests:
@@ -172,6 +180,7 @@ class SimulationTab(QWidget):
 
         return {
             "config": self._last_config_snapshot,
+            "summary": summary,
             "requests": reqs,
         }
 
