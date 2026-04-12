@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import copy
+import json
 from typing import Optional, Dict, Any
 
 from PySide6.QtCore import Signal
@@ -10,6 +12,8 @@ from PySide6.QtWidgets import (
     QTextEdit,
     QPushButton,
     QHBoxLayout,
+    QFileDialog,
+    QMessageBox,
 )
 
 from ui.model_params_widget import ModelParamsWidget
@@ -23,6 +27,7 @@ class SimulationTab(QWidget):
     - кнопки "Настройка параметров" и "Запустить симуляцию"
     - запуск симуляции
     - вывод результатов
+    - сохранение результатов симуляции в JSON (появляется кнопка после запуска)
     """
 
     open_settings_requested = Signal()
@@ -33,6 +38,7 @@ class SimulationTab(QWidget):
         super().__init__(parent)
 
         self._config: Optional[Dict[str, Any]] = None
+        self._last_config_snapshot: Optional[Dict[str, Any]] = None
         self._last_result = None
 
         layout = QVBoxLayout(self)
@@ -50,6 +56,12 @@ class SimulationTab(QWidget):
         layout.addWidget(self.results_box)
 
         layout.addStretch()
+
+        self.save_button = QPushButton("Сохранить результаты")
+        self.save_button.clicked.connect(self.save_results_as)
+        self.save_button.setVisible(False)  # появляется только после успешной симуляции
+
+        layout.addWidget(self.save_button)
 
         buttons_layout = QHBoxLayout()
 
@@ -70,6 +82,11 @@ class SimulationTab(QWidget):
         self._config = config
         self.params.update_view(config)
 
+        # Если конфиг изменился — считаем, что старые результаты не актуальны
+        self._last_result = None
+        self._last_config_snapshot = None
+        self.save_button.setVisible(False)
+
     def clear_results(self):
         self.results_box.clear()
 
@@ -80,6 +97,7 @@ class SimulationTab(QWidget):
 
     def run_simulation(self):
         self.clear_results()
+        self.save_button.setVisible(False)
 
         if not self._config:
             self.simulation_failed.emit("Конфиг не загружен")
@@ -88,6 +106,8 @@ class SimulationTab(QWidget):
         try:
             res = simulate(self._config)
             self._last_result = res
+            # фиксируем конфиг именно на момент запуска симуляции
+            self._last_config_snapshot = copy.deepcopy(self._config)
         except Exception as e:
             self.simulation_failed.emit(str(e))
             return
@@ -118,4 +138,66 @@ class SimulationTab(QWidget):
                 lines.append(f"  Server #{sid}: {res.server_utilization[sid]:.4f}")
 
         self.set_results_text("\n".join(lines))
+
+        # показываем кнопку сохранения результатов
+        self.save_button.setVisible(True)
+
         self.simulation_finished.emit(res)
+
+    # --------------------------
+
+    def _build_export_payload(self) -> Dict[str, Any]:
+        """
+        Формат сохранения:
+        - config: конфиг с параметрами
+        - requests: данные по заявкам:
+            id, t_arrival, t_service_start, server_name, t_service_end,
+            t_queue_enter, t_refuse
+        """
+        if self._last_result is None or self._last_config_snapshot is None:
+            raise RuntimeError("Нет результатов симуляции для сохранения")
+
+        reqs = []
+        for r in self._last_result.requests:
+            reqs.append({
+                "id": r.id,
+                "t_arrival": r.t_arrival,
+                "t_queue_enter": r.t_queue_enter,
+                "t_service_start": r.t_service_start,
+                "server_id": r.server_id,
+                "server_name": r.server_name,
+                "t_service_end": r.t_service_end,
+                "t_refuse": r.t_refuse,
+            })
+
+        return {
+            "config": self._last_config_snapshot,
+            "requests": reqs,
+        }
+
+    def save_results_as(self):
+        if self._last_result is None:
+            QMessageBox.warning(self, "Сохранение", "Сначала запустите симуляцию.")
+            return
+
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Сохранить результаты симуляции",
+            "simulation_results.json",
+            "JSON (*.json)"
+        )
+        if not path:
+            return
+
+        if not path.lower().endswith(".json"):
+            path += ".json"
+
+        try:
+            payload = self._build_export_payload()
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(payload, f, indent=4, ensure_ascii=False)
+        except Exception as e:
+            QMessageBox.critical(self, "Ошибка сохранения", str(e))
+            return
+
+        QMessageBox.information(self, "Сохранено", f"Результаты сохранены в:\n{path}")
