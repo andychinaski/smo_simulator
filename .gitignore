@@ -180,4 +180,8 @@ cython_debug/
 .cursorignore
 .cursorindexingignore
 
+# Локальные файлы с результатами симуляций и настройками (можно сохранять вручную, если нужно)
 *.json
+*.html
+*.csv
+*.xlsx
