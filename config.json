@@ -1,21 +1,26 @@
 {
-    "call_flow": 5,
-    "queue_size": 2,
-    "duration": 10,
+    "call_flow": 75,
+    "queue_size": 5,
+    "duration": 100,
     "operators": [
         {
             "type": "Специалист",
-            "mu": 1,
-            "count": 1
+            "mu": 6,
+            "count": 5
         },
         {
             "type": "Ведущий специалист",
-            "mu": 3,
+            "mu": 7,
+            "count": 3
+        },
+        {
+            "type": "Эксперт",
+            "mu": 8,
             "count": 1
         }
     ],
     "free_server_policy": "round_robin",
-    "drain": false,
+    "drain": true,
     "seed": null,
     "start_at_zero": true,
     "max_arrivals": null

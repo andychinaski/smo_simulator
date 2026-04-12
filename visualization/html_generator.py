@@ -112,14 +112,12 @@ def _assign_queue_slots(
         t_enter = _to_float(req.get("t_queue_enter"))
 
         if pr == 0:
-            # LEAVE
             if rid in req_to_slot:
                 slot = req_to_slot.pop(rid)
                 t0 = req_to_start.pop(rid)
                 segments.append((slot, rid, t0, t))
                 heapq.heappush(free_slots, slot)
         else:
-            # ENTER
             if t_enter is None:
                 continue
             if rid in req_to_slot:
@@ -129,7 +127,6 @@ def _assign_queue_slots(
                 req_to_slot[rid] = slot
                 req_to_start[rid] = t_enter
 
-    # remaining queued -> till fallback_end
     for rid, slot in req_to_slot.items():
         t0 = req_to_start.get(rid, None)
         if t0 is None:
@@ -142,70 +139,71 @@ def _assign_queue_slots(
 
 # ---------------- SVG primitives ----------------
 
-def _svg_text(x: float, y: float, text: str, size: int = 12, anchor: str = "start", fill: str = "#222") -> str:
+def _svg_text(
+    x: float,
+    y: float,
+    text: str,
+    size: int = 12,
+    anchor: str = "start",
+    fill: str = "#222",
+    css_class: str = "",
+) -> str:
+    cls = f' class="{css_class}"' if css_class else ""
     return (
-        f'<text x="{x:.2f}" y="{y:.2f}" font-size="{size}" '
+        f'<text{cls} x="{x:.2f}" y="{y:.2f}" font-size="{size}" '
         f'text-anchor="{anchor}" fill="{fill}">{_esc(text)}</text>'
     )
 
 
-def _svg_line(x1: float, y1: float, x2: float, y2: float, stroke: str = "#bbb",
-              width: float = 1.0, opacity: float = 1.0) -> str:
+def _svg_line(
+    x1: float, y1: float, x2: float, y2: float,
+    stroke: str = "#bbb", width: float = 1.0, opacity: float = 1.0,
+    nss: bool = True,
+) -> str:
+    ve = ' vector-effect="non-scaling-stroke"' if nss else ""
     return (
         f'<line x1="{x1:.2f}" y1="{y1:.2f}" x2="{x2:.2f}" y2="{y2:.2f}" '
-        f'stroke="{stroke}" stroke-width="{width}" opacity="{opacity}"/>'
+        f'stroke="{stroke}" stroke-width="{width}" opacity="{opacity}"{ve}/>'
     )
 
 
-def _svg_rect(x: float, y: float, w: float, h: float, fill: str, stroke: str = "#333",
-              rx: float = 4.0, title: str = "") -> str:
+def _svg_rect(
+    x: float, y: float, w: float, h: float,
+    fill: str, stroke: str = "#333", rx: float = 4.0,
+    title: str = "", nss: bool = True,
+) -> str:
     w = max(1.0, w)
     t = f"<title>{_esc(title)}</title>" if title else ""
+    ve = ' vector-effect="non-scaling-stroke"' if nss else ""
     return (
         f'<rect x="{x:.2f}" y="{y:.2f}" width="{w:.2f}" height="{h:.2f}" '
-        f'rx="{rx}" fill="{fill}" stroke="{stroke}" stroke-width="1">{t}</rect>'
+        f'rx="{rx}" fill="{fill}" stroke="{stroke}" stroke-width="1"{ve}>{t}</rect>'
     )
 
 
-def _svg_circle(cx: float, cy: float, r: float, fill: str, stroke: str = "#333", title: str = "") -> str:
+def _svg_circle(
+    cx: float, cy: float, r: float,
+    fill: str, stroke: str = "#333", title: str = "",
+    css_class: str = "", nss: bool = True,
+) -> str:
     t = f"<title>{_esc(title)}</title>" if title else ""
-    return f'<circle cx="{cx:.2f}" cy="{cy:.2f}" r="{r:.2f}" fill="{fill}" stroke="{stroke}" stroke-width="1">{t}</circle>'
+    cls = f' class="{css_class}"' if css_class else ""
+    ve = ' vector-effect="non-scaling-stroke"' if nss else ""
+    return f'<circle{cls} cx="{cx:.2f}" cy="{cy:.2f}" r="{r:.2f}" fill="{fill}" stroke="{stroke}" stroke-width="1"{ve}>{t}</circle>'
 
 
-def _svg_polyline(points: List[Tuple[float, float]], stroke: str = "#5b7cff",
-                  width: float = 1.0, opacity: float = 0.55) -> str:
+def _svg_polyline(
+    points: List[Tuple[float, float]],
+    stroke: str = "#5b7cff",
+    width: float = 1.0,
+    opacity: float = 0.55,
+    nss: bool = True,
+) -> str:
     if len(points) < 2:
         return ""
+    ve = ' vector-effect="non-scaling-stroke"' if nss else ""
     pts = " ".join(f"{px:.2f},{py:.2f}" for px, py in points)
-    return f'<polyline points="{pts}" fill="none" stroke="{stroke}" stroke-width="{width}" opacity="{opacity}"/>'
-
-
-def _nice_ticks(t_min: float, t_max: float, target: int = 10) -> List[float]:
-    rng = max(1e-9, t_max - t_min)
-    raw = rng / max(1, target)
-    import math
-    k = math.floor(math.log10(raw))
-    base = raw / (10 ** k)
-    if base <= 1:
-        step = 1
-    elif base <= 2:
-        step = 2
-    elif base <= 5:
-        step = 5
-    else:
-        step = 10
-    step *= (10 ** k)
-    start = math.floor(t_min / step) * step
-    end = math.ceil(t_max / step) * step
-    ticks = []
-    v = start
-    for _ in range(10_000):
-        if v > end + 1e-12:
-            break
-        if v >= t_min - 1e-12 and v <= t_max + 1e-12:
-            ticks.append(v)
-        v += step
-    return ticks
+    return f'<polyline points="{pts}" fill="none" stroke="{stroke}" stroke-width="{width}" opacity="{opacity}"{ve}/>'
 
 
 def _orthogonalize(points: List[Tuple[float, float]], eps: float = 1e-9) -> List[Tuple[float, float]]:
@@ -215,18 +213,13 @@ def _orthogonalize(points: List[Tuple[float, float]], eps: float = 1e-9) -> List
 
     for x2, y2 in points[1:]:
         x1, y1 = out[-1]
-
         dx = abs(x2 - x1)
         dy = abs(y2 - y1)
 
         if dx <= eps and dy <= eps:
             continue
 
-        if dx <= eps:
-            out.append((x2, y2))
-            continue
-
-        if dy <= eps:
+        if dx <= eps or dy <= eps:
             out.append((x2, y2))
             continue
 
@@ -254,7 +247,6 @@ def build_html_from_saved_result(saved: Dict[str, Any]) -> str:
     if not isinstance(reqs, list):
         reqs = []
 
-    # ---- config fields ----
     call_flow = config.get("call_flow")
     queue_size = _to_int(config.get("queue_size"), 0)
     duration = config.get("duration")
@@ -268,7 +260,6 @@ def build_html_from_saved_result(saved: Dict[str, Any]) -> str:
     if not isinstance(operators, list):
         operators = []
 
-    # ---- operators table ----
     operators_rows = []
     for op in operators:
         if not isinstance(op, dict):
@@ -292,7 +283,6 @@ def build_html_from_saved_result(saved: Dict[str, Any]) -> str:
         + "</tbody></table>"
     )
 
-    # ---- servers (lanes) ----
     server_names = _expand_server_names_from_config(config)
     observed_servers = sorted({
         str((r.get("server_name") or "Неизвестно"))
@@ -320,6 +310,7 @@ def build_html_from_saved_result(saved: Dict[str, Any]) -> str:
     if t_max <= t_min:
         t_max = t_min + 1.0
 
+    t_range = t_max - t_min
     t_fallback_end = t_max
 
     # ---- queue segments / slots ----
@@ -344,7 +335,6 @@ def build_html_from_saved_result(saved: Dict[str, Any]) -> str:
             t1 = t_fallback_end
         service_segments.append((sname, rid, t0, t1))
 
-    # ---- markers ----
     arrivals = [( _to_int(r.get("id", 0), 0), _to_float(r.get("t_arrival")) ) for r in reqs]
     arrivals = [(rid, t) for rid, t in arrivals if t is not None]
 
@@ -354,22 +344,22 @@ def build_html_from_saved_result(saved: Dict[str, Any]) -> str:
     refused = [( _to_int(r.get("id", 0), 0), _to_float(r.get("t_refuse")) ) for r in reqs]
     refused = [(rid, t) for rid, t in refused if t is not None]
 
-    # ---- SVG layout ----
-    SVG_WIDTH = 1100
-    LEFT_MARGIN = 260
-    RIGHT_MARGIN = 30
+    # ---- chart sizing (NO internal X padding in SVG -> padding done by HTML, non-scaling) ----
+    PX_PER_HOUR = 35
+    BASE_W_MIN = 1200
+    base_w = max(BASE_W_MIN, int(t_range * PX_PER_HOUR))  # viewBox width == "chart width"
 
-    HEADER_H = 44
-    TOP_MARGIN = HEADER_H + 18
-
+    TOP_MARGIN = 10
     LANE_H = 26
     LANE_GAP = 10
     SEG_H = 14
+    BOTTOM_PAD = 40
 
-    # Цвет "таймлайна" (тонкая синяя линия для каждой строки)
+    LABEL_COL_W = 250
+
     TIMELINE_COLOR = "#2f6fff"
-    TIMELINE_OPACITY = 0.5
-    TIMELINE_WIDTH = 2.0
+    TIMELINE_OPACITY = 0.35
+    TIMELINE_WIDTH = 1.0
 
     lanes: List[str] = []
     lanes.append("Поступление заявок")
@@ -384,12 +374,15 @@ def build_html_from_saved_result(saved: Dict[str, Any]) -> str:
     lanes.append("Отказ")
 
     lane_index: Dict[str, int] = {name: i for i, name in enumerate(lanes)}
+    svg_h = TOP_MARGIN + len(lanes) * (LANE_H + LANE_GAP) + BOTTOM_PAD
 
-    svg_h = TOP_MARGIN + len(lanes) * (LANE_H + LANE_GAP) + 50
-    scale = (SVG_WIDTH - LEFT_MARGIN - RIGHT_MARGIN) / (t_max - t_min)
+    # viewBox coords per hour
+    scale = base_w / t_range
+    chart_x0 = 0.0
+    chart_x1 = float(base_w)
 
     def x(t: float) -> float:
-        return LEFT_MARGIN + (t - t_min) * scale
+        return (t - t_min) * scale
 
     def lane_y(i: int) -> float:
         return TOP_MARGIN + i * (LANE_H + LANE_GAP)
@@ -397,69 +390,38 @@ def build_html_from_saved_result(saved: Dict[str, Any]) -> str:
     def lane_center(i: int) -> float:
         return lane_y(i) + LANE_H / 2
 
-    chart_x0 = LEFT_MARGIN
-    chart_x1 = SVG_WIDTH - RIGHT_MARGIN
+    # ---- left fixed labels ----
+    lane_row_h = LANE_H + LANE_GAP
+    labels_html = []
+    labels_html.append(f'<div class="lane-labels" style="padding-top:{TOP_MARGIN}px;width:{LABEL_COL_W}px;">')
+    for lname in lanes:
+        labels_html.append(f'<div class="lane-label" style="height:{lane_row_h}px;">{_esc(lname)}</div>')
+    labels_html.append('</div>')
+    labels_html_str = "\n".join(labels_html)
 
-    # ---- SVG content ----
+    # ---- SVG ----
     svg_parts: List[str] = []
     svg_parts.append(
-        f'<svg width="{SVG_WIDTH}" height="{svg_h}" viewBox="0 0 {SVG_WIDTH} {svg_h}" '
+        f'<svg id="timelineSvg" width="{base_w}" height="{svg_h}" '
+        f'viewBox="0 0 {base_w} {svg_h}" preserveAspectRatio="none" '
+        f'style="overflow: visible" '
         f'xmlns="http://www.w3.org/2000/svg">'
     )
-    svg_parts.append(_svg_rect(0, 0, SVG_WIDTH, svg_h, fill="#ffffff", stroke="#ffffff"))
+    svg_parts.append(_svg_rect(0, 0, base_w, svg_h, fill="#ffffff", stroke="#ffffff", nss=False))
 
-    # legend
-    legend_y = 30
-    legend_x = LEFT_MARGIN
-    svg_parts.append(_svg_text(legend_x, legend_y - 3, "Легенда:", size=12, fill="#333"))
+    svg_parts.append('<g id="gridMinor"></g>')
+    svg_parts.append('<g id="gridMajor"></g>')
+    svg_parts.append('<g id="gridLabels"></g>')
 
-    lx = legend_x + 70
-    svg_parts.append(_svg_rect(lx, legend_y - 12, 18, 10, fill="#b6e3a8", stroke="#3a7a2a", rx=2, title="Обслуживание"))
-    svg_parts.append(_svg_text(lx + 26, legend_y - 3, "обслуживание", size=11, fill="#333"))
-
-    lx += 130
-    svg_parts.append(_svg_rect(lx, legend_y - 12, 18, 10, fill="#ffd08a", stroke="#b06a00", rx=2, title="Ожидание в очереди"))
-    svg_parts.append(_svg_text(lx + 26, legend_y - 3, "ожидание", size=11, fill="#333"))
-
-    lx += 110
-    svg_parts.append(_svg_circle(lx + 8, legend_y - 7, 5, fill="#8aa8ff", stroke="#2546b8", title="Поступление"))
-    svg_parts.append(_svg_text(lx + 20, legend_y - 3, "поступление", size=11, fill="#333"))
-
-    lx += 125
-    svg_parts.append(_svg_circle(lx + 8, legend_y - 7, 5, fill="#2ecc71", stroke="#1c7a44", title="Выполнено"))
-    svg_parts.append(_svg_text(lx + 20, legend_y - 3, "выполнено", size=11, fill="#333"))
-
-    lx += 110
-    svg_parts.append(_svg_circle(lx + 8, legend_y - 7, 5, fill="#ff6b6b", stroke="#a11919", title="Отказ"))
-    svg_parts.append(_svg_text(lx + 20, legend_y - 3, "отказ", size=11, fill="#333"))
-
-    # vertical grid (ticks)
-    ticks = _nice_ticks(t_min, t_max, target=10)
-    for tv in ticks:
-        xx = x(tv)
-        svg_parts.append(_svg_line(xx, TOP_MARGIN - 6, xx, svg_h - 20, stroke="#e6e6e6", width=1))
-        svg_parts.append(_svg_text(xx, svg_h - 6, f"{tv:.2f}", size=11, anchor="middle", fill="#555"))
-
-    # lane labels + thin blue timeline for each lane
-    for i, lname in enumerate(lanes):
+    for i in range(len(lanes)):
+        yc = lane_center(i)
+        svg_parts.append(_svg_line(chart_x0, yc, chart_x1, yc,
+                                   stroke=TIMELINE_COLOR, width=TIMELINE_WIDTH, opacity=TIMELINE_OPACITY))
         yy = lane_y(i)
-        svg_parts.append(_svg_text(10, yy + LANE_H / 2 + 4, lname, size=12, anchor="start", fill="#333"))
+        svg_parts.append(_svg_line(0, yy + LANE_H + LANE_GAP / 2, base_w, yy + LANE_H + LANE_GAP / 2,
+                                   stroke="#f6f6f6", width=1, opacity=1.0))
 
-        yc = yy + LANE_H / 2
-
-        # ТОНКАЯ СИНЯЯ ЛИНИЯ (таймлайн) на всю ширину графика для каждой строки
-        svg_parts.append(_svg_line(
-            chart_x0, yc, chart_x1, yc,
-            stroke=TIMELINE_COLOR, width=TIMELINE_WIDTH, opacity=TIMELINE_OPACITY
-        ))
-
-        # very light separator at bottom of lane
-        svg_parts.append(_svg_line(
-            10, yy + LANE_H + LANE_GAP / 2, SVG_WIDTH - 10, yy + LANE_H + LANE_GAP / 2,
-            stroke="#f6f6f6", width=1
-        ))
-
-    # ---- connectors (orthogonal; end->done vertical) ----
+    # connectors
     id_to_req = {_to_int(r.get("id", 0), 0): r for r in reqs}
 
     arr_lane = lane_index["Поступление заявок"]
@@ -477,13 +439,11 @@ def build_html_from_saved_result(saved: Dict[str, Any]) -> str:
         t_s = _to_float(req.get("t_service_start"))
         t_end = _to_float(req.get("t_service_end"))
 
-        event_points: List[Tuple[float, float]] = []
-        event_points.append((x(t_arr), lane_center(arr_lane)))
+        event_points: List[Tuple[float, float]] = [(x(t_arr), lane_center(arr_lane))]
 
         if t_ref is not None:
             event_points.append((x(t_ref), lane_center(refuse_lane)))
-            event_points = _orthogonalize(event_points)
-            connector_parts.append(_svg_polyline(event_points, stroke="#5678ff", width=1.0, opacity=0.55))
+            connector_parts.append(_svg_polyline(_orthogonalize(event_points), stroke="#5678ff", width=1.0, opacity=0.45))
             continue
 
         if t_q is not None:
@@ -506,24 +466,23 @@ def build_html_from_saved_result(saved: Dict[str, Any]) -> str:
                 event_points.append((x(t_end), lane_center(lane_index[lane_name])))
             event_points.append((x(t_end), lane_center(done_lane)))
 
-        event_points = _orthogonalize(event_points)
-        if len(event_points) >= 2:
-            connector_parts.append(_svg_polyline(event_points, stroke="#5678ff", width=1.0, opacity=0.55))
+        pts = _orthogonalize(event_points)
+        if len(pts) >= 2:
+            connector_parts.append(_svg_polyline(pts, stroke="#5678ff", width=1.0, opacity=0.45))
 
     svg_parts.append('<g id="connectors">')
     svg_parts.extend(connector_parts)
     svg_parts.append('</g>')
 
-    # ---- draw arrival markers ----
-    yy = lane_center(arr_lane)
+    # markers & segments
+    yy_arr = lane_center(arr_lane)
     for rid, t in arrivals:
         cx = x(t)
         label = str(rid + 1)
-        svg_parts.append(_svg_circle(cx, yy, 5, fill="#8aa8ff", stroke="#2546b8",
-                                     title=f"Заявка {label}: поступление t={t:.6f}"))
-        svg_parts.append(_svg_text(cx, yy - 11, label, size=10, anchor="middle", fill="#222"))
+        svg_parts.append(_svg_circle(cx, yy_arr, 5, fill="#8aa8ff", stroke="#2546b8",
+                                     title=f"Заявка {label}: поступление t={t:.6f}", css_class="no-xscale"))
+        svg_parts.append(_svg_text(cx, yy_arr - 11, label, size=10, anchor="middle", fill="#222", css_class="no-xscale"))
 
-    # ---- draw service segments ----
     for sname, rid, t0, t1 in service_segments:
         lane_name = f"Канал: {sname}"
         if lane_name not in lane_index:
@@ -533,14 +492,11 @@ def build_html_from_saved_result(saved: Dict[str, Any]) -> str:
         x0 = x(t0)
         x1 = x(t1)
         label = str(rid + 1)
-        svg_parts.append(_svg_rect(
-            x0, yy0, x1 - x0, SEG_H,
-            fill="#b6e3a8", stroke="#3a7a2a", rx=4,
-            title=f"Заявка {label} — обслуживание на «{sname}»\nstart={t0:.6f}, end={t1:.6f}"
-        ))
-        svg_parts.append(_svg_text((x0 + x1) / 2, yy0 + SEG_H - 2, label, size=10, anchor="middle", fill="#0f3b0f"))
+        svg_parts.append(_svg_rect(x0, yy0, x1 - x0, SEG_H, fill="#b6e3a8", stroke="#3a7a2a", rx=4,
+                                   title=f"Заявка {label} — обслуживание на «{sname}»\nstart={t0:.6f}, end={t1:.6f}"))
+        svg_parts.append(_svg_text((x0 + x1) / 2, yy0 + SEG_H - 2, label, size=10, anchor="middle",
+                                   fill="#0f3b0f", css_class="no-xscale"))
 
-    # ---- draw queue segments ----
     for slot, rid, t0, t1 in queue_segments:
         lane_name = f"Очередь — место {slot}"
         if lane_name not in lane_index:
@@ -550,45 +506,52 @@ def build_html_from_saved_result(saved: Dict[str, Any]) -> str:
         x0 = x(t0)
         x1 = x(t1)
         label = str(rid + 1)
-        svg_parts.append(_svg_rect(
-            x0, yy0, x1 - x0, SEG_H,
-            fill="#ffd08a", stroke="#b06a00", rx=4,
-            title=f"Заявка {label} — ожидание в очереди (место {slot})\nenter={t0:.6f}, leave={t1:.6f}"
-        ))
-        svg_parts.append(_svg_text((x0 + x1) / 2, yy0 + SEG_H - 2, label, size=10, anchor="middle", fill="#5a3300"))
+        svg_parts.append(_svg_rect(x0, yy0, x1 - x0, SEG_H, fill="#ffd08a", stroke="#b06a00", rx=4,
+                                   title=f"Заявка {label} — ожидание в очереди (место {slot})\nenter={t0:.6f}, leave={t1:.6f}"))
+        svg_parts.append(_svg_text((x0 + x1) / 2, yy0 + SEG_H - 2, label, size=10, anchor="middle",
+                                   fill="#5a3300", css_class="no-xscale"))
 
-    # ---- done markers ----
-    yy = lane_center(done_lane)
+    yy_done = lane_center(done_lane)
     for rid, t in served:
         cx = x(t)
         label = str(rid + 1)
-        svg_parts.append(_svg_circle(cx, yy, 5, fill="#2ecc71", stroke="#1c7a44",
-                                     title=f"Заявка {label}: выполнено (t={t:.6f})"))
-        svg_parts.append(_svg_text(cx, yy - 11, label, size=10, anchor="middle", fill="#145b32"))
+        svg_parts.append(_svg_circle(cx, yy_done, 5, fill="#2ecc71", stroke="#1c7a44",
+                                     title=f"Заявка {label}: выполнено (t={t:.6f})", css_class="no-xscale"))
+        svg_parts.append(_svg_text(cx, yy_done - 11, label, size=10, anchor="middle", fill="#145b32", css_class="no-xscale"))
 
-    # ---- refused markers ----
-    yy = lane_center(refuse_lane)
+    yy_ref = lane_center(refuse_lane)
     for rid, t in refused:
         cx = x(t)
         label = str(rid + 1)
-        svg_parts.append(_svg_circle(cx, yy, 5, fill="#ff6b6b", stroke="#a11919",
-                                     title=f"Заявка {label}: отказ t={t:.6f}"))
-        svg_parts.append(_svg_text(cx, yy - 11, label, size=10, anchor="middle", fill="#7a1111"))
+        svg_parts.append(_svg_circle(cx, yy_ref, 5, fill="#ff6b6b", stroke="#a11919",
+                                     title=f"Заявка {label}: отказ t={t:.6f}", css_class="no-xscale"))
+        svg_parts.append(_svg_text(cx, yy_ref - 11, label, size=10, anchor="middle", fill="#7a1111", css_class="no-xscale"))
 
-    # x-axis
     svg_parts.append(_svg_line(chart_x0, svg_h - 24, chart_x1, svg_h - 24, stroke="#888", width=1.2))
-    svg_parts.append(_svg_text(chart_x1, svg_h - 28, "t", size=12, anchor="end", fill="#555"))
+    svg_parts.append(_svg_text(chart_x1, svg_h - 28, "t", size=12, anchor="end", fill="#555", css_class="no-xscale"))
 
     svg_parts.append("</svg>")
-    svg = "\n".join(svg_parts)
+    svg_str = "\n".join(svg_parts)
 
-    # ---- final HTML ----
+    # ZOOM CONFIG (for JS UI)
+    # discrete "nice" zoom values to avoid 12.23565 etc.
+    zoom_stops = [
+        0.25, 0.33, 0.5, 0.67, 0.75, 1.0, 1.25, 1.5, 2.0, 2.5,
+        3.0, 4.0, 5.0, 6.0, 8.0, 10.0, 12.0, 15.0
+    ]
+    zoom_min = 0.25
+    zoom_max = 15.0
+
     html = f"""<!doctype html>
 <html lang="ru">
 <head>
   <meta charset="utf-8" />
   <title>Визуализация СМО</title>
   <style>
+    :root {{
+      --zoom: 1;
+      --invZoom: 1;
+    }}
     body {{
       font-family: Arial, sans-serif;
       margin: 24px;
@@ -596,6 +559,7 @@ def build_html_from_saved_result(saved: Dict[str, Any]) -> str:
     }}
     h1 {{ margin: 0 0 12px 0; }}
     .section {{ margin-top: 18px; }}
+
     table {{
       border-collapse: collapse;
       width: 100%;
@@ -608,6 +572,7 @@ def build_html_from_saved_result(saved: Dict[str, Any]) -> str:
       vertical-align: top;
     }}
     th {{ background: #f3f3f3; }}
+
     .kv {{
       max-width: 1000px;
       padding: 12px;
@@ -620,17 +585,78 @@ def build_html_from_saved_result(saved: Dict[str, Any]) -> str:
       min-width: 360px;
       color: #555;
     }}
+
     .note {{
       color: #666;
       font-size: 12px;
       margin-top: 6px;
     }}
-    .svg-wrap {{
+
+    .timeline-controls {{
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin: 10px 0;
+      user-select: none;
+      flex-wrap: wrap;
+    }}
+    .timeline-controls button {{
+      padding: 6px 10px;
+      cursor: pointer;
+    }}
+    .timeline-controls .zoom-value {{
+      font-size: 12px;
+      color: #444;
+      padding: 0 6px;
+    }}
+    .timeline-controls input[type="range"] {{
+      width: 220px;
+    }}
+    .timeline-controls input[type="number"] {{
+      width: 90px;
+      padding: 6px 8px;
+    }}
+
+    .timeline-layout {{
+      display: flex;
       border: 1px solid #ddd;
-      background: white;
-      padding: 10px;
-      overflow-x: auto;
+      background: #fff;
       max-width: 100%;
+    }}
+
+    .lane-labels {{
+      flex: 0 0 auto;
+      border-right: 1px solid #ddd;
+      background: #fff;
+    }}
+    .lane-label {{
+      display: flex;
+      align-items: center;
+      padding: 0 10px;
+      font-size: 12px;
+      border-bottom: 1px solid #f6f6f6;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }}
+
+    .timeline-scroll {{
+      flex: 1 1 auto;
+      overflow-x: auto;
+      overflow-y: hidden;
+    }}
+
+    /* keep text/circles stable under horizontal zoom */
+    #timelineSvg .no-xscale {{
+      transform: scaleX(var(--invZoom));
+      transform-origin: center;
+      transform-box: fill-box;
+    }}
+
+    /* Non-scaling left/right margins (do not zoom): */
+    .timeline-svg-wrap {{
+      padding: 10px 50px; /* IMPORTANT: JS uses WRAP_PAD_X=50 */
+      display: inline-block;
     }}
   </style>
 </head>
@@ -658,16 +684,350 @@ def build_html_from_saved_result(saved: Dict[str, Any]) -> str:
 
   <div class="section">
     <h2>Временная диаграмма</h2>
-    <div class="svg-wrap">
-      {svg}
+
+    <div class="timeline-controls">
+      <strong>Легенда:</strong>
+      <span style="display:inline-flex;align-items:center;gap:6px;">
+        <span style="display:inline-block;width:18px;height:10px;background:#b6e3a8;border:1px solid #3a7a2a;border-radius:2px;"></span>
+        обслуживание
+      </span>
+      <span style="display:inline-flex;align-items:center;gap:6px;">
+        <span style="display:inline-block;width:18px;height:10px;background:#ffd08a;border:1px solid #b06a00;border-radius:2px;"></span>
+        ожидание
+      </span>
+      <span style="display:inline-flex;align-items:center;gap:6px;">
+        <span style="display:inline-block;width:10px;height:10px;background:#8aa8ff;border:1px solid #2546b8;border-radius:50%;"></span>
+        поступление
+      </span>
+      <span style="display:inline-flex;align-items:center;gap:6px;">
+        <span style="display:inline-block;width:10px;height:10px;background:#2ecc71;border:1px solid #1c7a44;border-radius:50%;"></span>
+        выполнено
+      </span>
+      <span style="display:inline-flex;align-items:center;gap:6px;">
+        <span style="display:inline-block;width:10px;height:10px;background:#ff6b6b;border:1px solid #a11919;border-radius:50%;"></span>
+        отказ
+      </span>
+
+      <span style="flex:1 1 auto;"></span>
+
+      <button id="zoomOut" type="button">−</button>
+      <button id="zoomIn" type="button">+</button>
+
+      <input id="zoomSlider" type="range" min="0" max="{len(zoom_stops)-1}" step="1" value="5" />
+      <input id="zoomInput" type="number" min="{zoom_min}" max="{zoom_max}" step="0.01" value="1.00" />
+
+      <button id="zoomReset" type="button">Сброс</button>
+      <span class="zoom-value">Масштаб: <span id="zoomValue">1.00x</span></span>
     </div>
+
+    <div class="timeline-layout">
+      {labels_html_str}
+      <div class="timeline-scroll" id="timelineScroll">
+        <div class="timeline-svg-wrap" id="timelineWrap">
+          {svg_str}
+        </div>
+      </div>
+    </div>
+
     <div class="note">
-      Примечание: времена указаны в часах. Переходы заявок соединены линиями без диагоналей.
-      Места очереди восстанавливаются по событиям «вход в очередь» и «старт обслуживания».
+      Примечание: сетка рисуется только в видимой области. Масштабирование — по ширине.
       Если очередь больше {MAX_QUEUE_SLOTS_DRAW}, отображаются только первые {MAX_QUEUE_SLOTS_DRAW} мест.
     </div>
   </div>
 
+  <script>
+    (function() {{
+      const baseWidth = {base_w};
+      const tMin = {t_min};
+      const tMax = {t_max};
+      const chartX0 = {chart_x0};
+      const chartX1 = {chart_x1};
+      const scaleCoordPerHour = {scale};
+      const svgH = {svg_h};
+
+      const ZOOM_MIN = {zoom_min};
+      const ZOOM_MAX = {zoom_max};
+      const ZOOM_STOPS = {zoom_stops};
+
+      let zoom = 1.0;
+
+      const svg = document.getElementById('timelineSvg');
+      const scroll = document.getElementById('timelineScroll');
+      const wrap = document.getElementById('timelineWrap');
+
+      const zoomValue = document.getElementById('zoomValue');
+      const zoomSlider = document.getElementById('zoomSlider');
+      const zoomInput  = document.getElementById('zoomInput');
+
+      const btnIn = document.getElementById('zoomIn');
+      const btnOut = document.getElementById('zoomOut');
+      const btnReset = document.getElementById('zoomReset');
+
+      const gMinor = document.getElementById('gridMinor');
+      const gMajor = document.getElementById('gridMajor');
+      const gLabels = document.getElementById('gridLabels');
+
+      // must match CSS padding-right/left in .timeline-svg-wrap
+      const WRAP_PAD_X = 50;
+
+      function clamp(v, lo, hi) {{ return Math.max(lo, Math.min(hi, v)); }}
+      function round2(v) {{ return Math.round(v * 100) / 100; }}
+
+      function snapZoom(v) {{
+        v = clamp(v, ZOOM_MIN, ZOOM_MAX);
+        return round2(v);
+      }}
+
+      function nearestStopIndex(z) {{
+        let bestI = 0;
+        let bestD = Infinity;
+        for (let i = 0; i < ZOOM_STOPS.length; i++) {{
+          const d = Math.abs(ZOOM_STOPS[i] - z);
+          if (d < bestD) {{ bestD = d; bestI = i; }}
+        }}
+        return bestI;
+      }}
+
+      function nextStop(z) {{
+        for (let i = 0; i < ZOOM_STOPS.length; i++) {{
+          if (ZOOM_STOPS[i] > z + 1e-9) return ZOOM_STOPS[i];
+        }}
+        return ZOOM_STOPS[ZOOM_STOPS.length - 1];
+      }}
+
+      function prevStop(z) {{
+        for (let i = ZOOM_STOPS.length - 1; i >= 0; i--) {{
+          if (ZOOM_STOPS[i] < z - 1e-9) return ZOOM_STOPS[i];
+        }}
+        return ZOOM_STOPS[0];
+      }}
+
+      function clear(node) {{
+        while (node.firstChild) node.removeChild(node.firstChild);
+      }}
+
+      const NICE_MINUTES = [
+        1,2,5,10,15,30,
+        60,120,180,240,360,480,720,1440,
+        2880,4320,5760,7200
+      ];
+
+      function chooseStepHours(targetPx, pxPerHour) {{
+        const targetHours = targetPx / Math.max(1e-9, pxPerHour);
+        const targetMinutes = targetHours * 60.0;
+        for (const m of NICE_MINUTES) {{
+          if (m >= targetMinutes - 1e-9) return m / 60.0;
+        }}
+        return NICE_MINUTES[NICE_MINUTES.length - 1] / 60.0;
+      }}
+
+      function fmtTimeHM(hours) {{
+        const totalMin = Math.round(hours * 60);
+        const h = Math.floor(totalMin / 60);
+        const m = Math.abs(totalMin % 60);
+        return String(h) + ":" + String(m).padStart(2, "0");
+      }}
+
+      function timeToXCoord(t) {{
+        return chartX0 + (t - tMin) * scaleCoordPerHour;
+      }}
+
+      function xCoordToTime(x) {{
+        return tMin + (x - chartX0) / scaleCoordPerHour;
+      }}
+
+      function createVLine(x, stroke, width, opacity) {{
+        const ln = document.createElementNS("http://www.w3.org/2000/svg", "line");
+        ln.setAttribute("x1", x);
+        ln.setAttribute("x2", x);
+        ln.setAttribute("y1", 0);
+        ln.setAttribute("y2", (svgH - 20).toString());
+        ln.setAttribute("stroke", stroke);
+        ln.setAttribute("stroke-width", width.toString());
+        ln.setAttribute("opacity", opacity.toString());
+        ln.setAttribute("vector-effect", "non-scaling-stroke");
+        return ln;
+      }}
+
+      function createText(x, y, text) {{
+        const tx = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        tx.setAttribute("x", x);
+        tx.setAttribute("y", y);
+        tx.setAttribute("text-anchor", "middle");
+        tx.setAttribute("fill", "#555");
+        tx.setAttribute("font-size", "11");
+        tx.setAttribute("class", "no-xscale");
+        tx.textContent = text;
+        return tx;
+      }}
+
+      function niceCeil(v, step) {{
+        return Math.ceil((v - 1e-9) / step) * step;
+      }}
+
+      function getDisplayedSvgWidth() {{
+        return parseFloat(svg.getAttribute('width')) || baseWidth;
+      }}
+
+      function getVisibleViewBoxRange() {{
+        const dispW = getDisplayedSvgWidth();
+
+        let px0 = scroll.scrollLeft - WRAP_PAD_X;
+        let px1 = scroll.scrollLeft + scroll.clientWidth - WRAP_PAD_X;
+
+        px0 = Math.max(0, px0);
+        px1 = Math.min(dispW, px1);
+
+        const vx0 = (px0 / dispW) * baseWidth;
+        const vx1 = (px1 / dispW) * baseWidth;
+
+        const cx0 = Math.max(chartX0, vx0);
+        const cx1 = Math.min(chartX1, vx1);
+
+        return [cx0, cx1];
+      }}
+
+      function updateGridVisible() {{
+        clear(gMinor);
+        clear(gMajor);
+        clear(gLabels);
+
+        const dispW = getDisplayedSvgWidth();
+        const pxPerHour = scaleCoordPerHour * (dispW / baseWidth);
+
+        const [vx0, vx1] = getVisibleViewBoxRange();
+        if (vx1 <= vx0 + 1e-9) return;
+
+        let t0 = xCoordToTime(vx0);
+        let t1 = xCoordToTime(vx1);
+
+        const majorTargetPx = 160;
+        const minorTargetPx = 40;
+
+        let majorStep = chooseStepHours(majorTargetPx, pxPerHour);
+        let minorStep = chooseStepHours(minorTargetPx, pxPerHour);
+
+        if (minorStep >= majorStep) {{
+          majorStep = chooseStepHours(majorTargetPx * 2, pxPerHour);
+        }}
+
+        const pad = majorStep * 2;
+        t0 = Math.max(tMin, t0 - pad);
+        t1 = Math.min(tMax, t1 + pad);
+
+        const eps = 1e-8;
+
+        // minor
+        let tm = niceCeil(t0, minorStep);
+        for (let guard = 0; guard < 200000; guard++) {{
+          if (tm > t1 + eps) break;
+          const xx = timeToXCoord(tm);
+          if (xx >= chartX0 - 1 && xx <= chartX1 + 1) {{
+            const k = tm / majorStep;
+            const isMajor = Math.abs(k - Math.round(k)) < 1e-6;
+            if (!isMajor) {{
+              gMinor.appendChild(createVLine(xx, "#f2f2f2", 1, 1.0));
+            }}
+          }}
+          tm += minorStep;
+        }}
+
+        // major + labels
+        let tM = niceCeil(t0, majorStep);
+        for (let guard = 0; guard < 200000; guard++) {{
+          if (tM > t1 + eps) break;
+          const xx = timeToXCoord(tM);
+          if (xx >= chartX0 - 1 && xx <= chartX1 + 1) {{
+            gMajor.appendChild(createVLine(xx, "#dcdcdc", 1, 1.0));
+            gLabels.appendChild(createText(xx, (svgH - 8).toString(), fmtTimeHM(tM)));
+          }}
+          tM += majorStep;
+        }}
+      }}
+
+      // throttle grid updates
+      let rafPending = false;
+      function scheduleGridUpdate() {{
+        if (rafPending) return;
+        rafPending = true;
+        requestAnimationFrame(() => {{
+          rafPending = false;
+          updateGridVisible();
+        }});
+      }}
+
+      function setUiFromZoom() {{
+        zoomValue.textContent = zoom.toFixed(2) + 'x';
+        zoomInput.value = zoom.toFixed(2);
+        zoomSlider.value = String(nearestStopIndex(zoom));
+      }}
+
+      function applyZoom(newZoom, keepCenter=true) {{
+        newZoom = snapZoom(newZoom);
+
+        const oldZoom = zoom;
+        const oldWidth = baseWidth * oldZoom;
+        const newWidth = baseWidth * newZoom;
+
+        // keep center relative to SVG content, ignoring fixed padding
+        let centerFrac = 0.0;
+        if (keepCenter) {{
+          const centerPx = (scroll.scrollLeft - WRAP_PAD_X) + scroll.clientWidth / 2;
+          centerFrac = oldWidth > 0 ? (centerPx / oldWidth) : 0.0;
+        }}
+
+        zoom = newZoom;
+
+        document.documentElement.style.setProperty('--zoom', zoom.toString());
+        document.documentElement.style.setProperty('--invZoom', (1/zoom).toString());
+
+        svg.setAttribute('width', Math.round(newWidth).toString());
+
+        if (keepCenter) {{
+          const newCenterPx = centerFrac * newWidth;
+          scroll.scrollLeft = Math.max(0, (newCenterPx - scroll.clientWidth / 2) + WRAP_PAD_X);
+        }}
+
+        setUiFromZoom();
+        scheduleGridUpdate();
+      }}
+
+      // buttons use discrete nice stops
+      btnIn.addEventListener('click', () => applyZoom(nextStop(zoom), true));
+      btnOut.addEventListener('click', () => applyZoom(prevStop(zoom), true));
+      btnReset.addEventListener('click', () => applyZoom(1.0, false));
+
+      // slider -> exact stop
+      zoomSlider.addEventListener('input', () => {{
+        const idx = parseInt(zoomSlider.value, 10) || 0;
+        applyZoom(ZOOM_STOPS[Math.max(0, Math.min(ZOOM_STOPS.length-1, idx))], true);
+      }});
+
+      // manual input
+      function applyFromInput() {{
+        const v = parseFloat(zoomInput.value);
+        if (!isFinite(v)) {{
+          setUiFromZoom();
+          return;
+        }}
+        applyZoom(v, true);
+      }}
+      zoomInput.addEventListener('change', applyFromInput);
+      zoomInput.addEventListener('keydown', (e) => {{
+        if (e.key === 'Enter') {{
+          zoomInput.blur();
+          applyFromInput();
+        }}
+      }});
+
+      // re-render grid on scroll/resize
+      scroll.addEventListener('scroll', scheduleGridUpdate, {{ passive: true }});
+      window.addEventListener('resize', scheduleGridUpdate);
+
+      // init
+      applyZoom(1.0, false);
+    }})();
+  </script>
 </body>
 </html>
 """
