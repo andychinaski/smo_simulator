@@ -60,10 +60,6 @@ def _to_float(x: Any) -> Optional[float]:
 # ---------------- build lanes (servers) ----------------
 
 def _expand_server_names_from_config(config: Dict[str, Any]) -> List[str]:
-    """
-    Генерирует список серверов в том же стиле, что и simulator.build_servers:
-    "{type} #{i}" согласно operators[].count
-    """
     ops = config.get("operators") or []
     if not isinstance(ops, list):
         return []
@@ -75,7 +71,7 @@ def _expand_server_names_from_config(config: Dict[str, Any]) -> List[str]:
         op_type = str(op.get("type", "Канал"))
         count = _to_int(op.get("count", 1), 1)
         for k in range(max(0, count)):
-            names.append(f"{op_type} #{k+1}")
+            names.append(f"{op_type} #{k + 1}")
     return names
 
 
@@ -86,12 +82,6 @@ def _assign_queue_slots(
     queue_size: int,
     t_fallback_end: float,
 ) -> List[Tuple[int, int, float, float]]:
-    """
-    Восстанавливает занятость мест очереди по событиям:
-    - ENTER: t_queue_enter
-    - LEAVE: t_service_start (если была очередь)
-    Возвращает список сегментов: (slot_index_1based, req_id, t_start, t_end)
-    """
     if queue_size <= 0:
         return []
 
@@ -115,25 +105,21 @@ def _assign_queue_slots(
     req_to_start: Dict[int, float] = {}
     segments: List[Tuple[int, int, float, float]] = []
 
-    # build map id->request for checking enter/leave times
     id_to_req = {_to_int(r.get("id", 0), 0): r for r in requests}
 
     for t, pr, rid in events:
         req = id_to_req.get(rid, {})
         t_enter = _to_float(req.get("t_queue_enter"))
-        t_leave = _to_float(req.get("t_service_start")) if t_enter is not None else None
 
         if pr == 0:
             # LEAVE
             if rid in req_to_slot:
                 slot = req_to_slot.pop(rid)
                 t0 = req_to_start.pop(rid)
-                t1 = t
-                segments.append((slot, rid, t0, t1))
+                segments.append((slot, rid, t0, t))
                 heapq.heappush(free_slots, slot)
         else:
             # ENTER
-            # enter may happen even if later service never happens
             if t_enter is None:
                 continue
             if rid in req_to_slot:
@@ -150,12 +136,11 @@ def _assign_queue_slots(
             continue
         segments.append((slot, rid, t0, t_fallback_end))
 
-    # sort by slot then time
     segments.sort(key=lambda x: (x[0], x[2], x[3]))
     return segments
 
 
-# ---------------- SVG rendering ----------------
+# ---------------- SVG primitives ----------------
 
 def _svg_text(x: float, y: float, text: str, size: int = 12, anchor: str = "start", fill: str = "#222") -> str:
     return (
@@ -164,11 +149,16 @@ def _svg_text(x: float, y: float, text: str, size: int = 12, anchor: str = "star
     )
 
 
-def _svg_line(x1: float, y1: float, x2: float, y2: float, stroke: str = "#bbb", width: float = 1.0) -> str:
-    return f'<line x1="{x1:.2f}" y1="{y1:.2f}" x2="{x2:.2f}" y2="{y2:.2f}" stroke="{stroke}" stroke-width="{width}"/>'
+def _svg_line(x1: float, y1: float, x2: float, y2: float, stroke: str = "#bbb",
+              width: float = 1.0, opacity: float = 1.0) -> str:
+    return (
+        f'<line x1="{x1:.2f}" y1="{y1:.2f}" x2="{x2:.2f}" y2="{y2:.2f}" '
+        f'stroke="{stroke}" stroke-width="{width}" opacity="{opacity}"/>'
+    )
 
 
-def _svg_rect(x: float, y: float, w: float, h: float, fill: str, stroke: str = "#333", rx: float = 4.0, title: str = "") -> str:
+def _svg_rect(x: float, y: float, w: float, h: float, fill: str, stroke: str = "#333",
+              rx: float = 4.0, title: str = "") -> str:
     w = max(1.0, w)
     t = f"<title>{_esc(title)}</title>" if title else ""
     return (
@@ -182,10 +172,17 @@ def _svg_circle(cx: float, cy: float, r: float, fill: str, stroke: str = "#333",
     return f'<circle cx="{cx:.2f}" cy="{cy:.2f}" r="{r:.2f}" fill="{fill}" stroke="{stroke}" stroke-width="1">{t}</circle>'
 
 
+def _svg_polyline(points: List[Tuple[float, float]], stroke: str = "#5b7cff",
+                  width: float = 1.0, opacity: float = 0.55) -> str:
+    if len(points) < 2:
+        return ""
+    pts = " ".join(f"{px:.2f},{py:.2f}" for px, py in points)
+    return f'<polyline points="{pts}" fill="none" stroke="{stroke}" stroke-width="{width}" opacity="{opacity}"/>'
+
+
 def _nice_ticks(t_min: float, t_max: float, target: int = 10) -> List[float]:
     rng = max(1e-9, t_max - t_min)
     raw = rng / max(1, target)
-    # choose step from {1,2,5} * 10^k
     import math
     k = math.floor(math.log10(raw))
     base = raw / (10 ** k)
@@ -202,7 +199,6 @@ def _nice_ticks(t_min: float, t_max: float, target: int = 10) -> List[float]:
     end = math.ceil(t_max / step) * step
     ticks = []
     v = start
-    # guard infinite loops
     for _ in range(10_000):
         if v > end + 1e-12:
             break
@@ -212,31 +208,41 @@ def _nice_ticks(t_min: float, t_max: float, target: int = 10) -> List[float]:
     return ticks
 
 
+def _orthogonalize(points: List[Tuple[float, float]], eps: float = 1e-9) -> List[Tuple[float, float]]:
+    if not points:
+        return points
+    out: List[Tuple[float, float]] = [points[0]]
+
+    for x2, y2 in points[1:]:
+        x1, y1 = out[-1]
+
+        dx = abs(x2 - x1)
+        dy = abs(y2 - y1)
+
+        if dx <= eps and dy <= eps:
+            continue
+
+        if dx <= eps:
+            out.append((x2, y2))
+            continue
+
+        if dy <= eps:
+            out.append((x2, y2))
+            continue
+
+        out.append((x2, y1))
+        out.append((x2, y2))
+
+    compact: List[Tuple[float, float]] = []
+    for p in out:
+        if not compact or (abs(compact[-1][0] - p[0]) > eps or abs(compact[-1][1] - p[1]) > eps):
+            compact.append(p)
+    return compact
+
+
 # ---------------- public API ----------------
 
 def build_html_from_saved_result(saved: Dict[str, Any]) -> str:
-    """
-    saved ожидается в формате:
-    {
-      "config": {...},
-      "requests": [
-        {
-          "id": 0,
-          "t_arrival": ...,
-          "t_queue_enter": ...,
-          "t_service_start": ...,
-          "server_name": ...,
-          "t_service_end": ...,
-          "t_refuse": ...
-        }, ...
-      ]
-    }
-
-    Генерирует HTML со:
-    - параметрами модели
-    - таблицей каналов
-    - временной диаграммой (timeline) по заявкам/серверам/очереди/отказам
-    """
     if not isinstance(saved, dict):
         raise ValueError("Некорректный формат данных (ожидается JSON-объект)")
 
@@ -286,15 +292,18 @@ def build_html_from_saved_result(saved: Dict[str, Any]) -> str:
         + "</tbody></table>"
     )
 
-    # ---- build lanes data ----
-    # server lanes order from config; fallback to observed in requests
+    # ---- servers (lanes) ----
     server_names = _expand_server_names_from_config(config)
-    observed_servers = sorted({str(r.get("server_name")) for r in reqs if r.get("server_name")})
+    observed_servers = sorted({
+        str((r.get("server_name") or "Неизвестно"))
+        for r in reqs
+        if _to_float(r.get("t_service_start")) is not None
+    })
     for s in observed_servers:
         if s not in server_names:
             server_names.append(s)
 
-    # collect times to define timeline range
+    # ---- time range ----
     times: List[float] = [0.0]
     dur_f = _to_float(duration)
     if dur_f is not None and dur_f > 0:
@@ -311,29 +320,31 @@ def build_html_from_saved_result(saved: Dict[str, Any]) -> str:
     if t_max <= t_min:
         t_max = t_min + 1.0
 
-    # if queue segments remain open, we need end time fallback
     t_fallback_end = t_max
 
-    # queue slots segments reconstruction
-    # limit displayed queue slots to avoid enormous page
+    # ---- queue segments / slots ----
     MAX_QUEUE_SLOTS_DRAW = 20
     draw_queue_slots = min(queue_size, MAX_QUEUE_SLOTS_DRAW)
     queue_segments = _assign_queue_slots(reqs, draw_queue_slots, t_fallback_end)
 
-    # service segments (by server_name)
+    queue_slot_of: Dict[int, int] = {}
+    for slot, rid, t0, _t1 in sorted(queue_segments, key=lambda x: (x[1], x[2])):
+        queue_slot_of.setdefault(rid, slot)
+
+    # ---- service segments ----
     service_segments: List[Tuple[str, int, float, float]] = []
     for r in reqs:
         rid = _to_int(r.get("id", 0), 0)
-        sname = r.get("server_name")
+        sname = str(r.get("server_name") or "Неизвестно")
         t0 = _to_float(r.get("t_service_start"))
         t1 = _to_float(r.get("t_service_end"))
         if t0 is None:
             continue
         if t1 is None:
             t1 = t_fallback_end
-        service_segments.append((str(sname) if sname else "Канал", rid, t0, t1))
+        service_segments.append((sname, rid, t0, t1))
 
-    # markers
+    # ---- markers ----
     arrivals = [( _to_int(r.get("id", 0), 0), _to_float(r.get("t_arrival")) ) for r in reqs]
     arrivals = [(rid, t) for rid, t in arrivals if t is not None]
 
@@ -347,10 +358,18 @@ def build_html_from_saved_result(saved: Dict[str, Any]) -> str:
     SVG_WIDTH = 1100
     LEFT_MARGIN = 260
     RIGHT_MARGIN = 30
-    TOP_MARGIN = 20
+
+    HEADER_H = 44
+    TOP_MARGIN = HEADER_H + 18
+
     LANE_H = 26
     LANE_GAP = 10
     SEG_H = 14
+
+    # Цвет "таймлайна" (тонкая синяя линия для каждой строки)
+    TIMELINE_COLOR = "#2f6fff"
+    TIMELINE_OPACITY = 0.5
+    TIMELINE_WIDTH = 2.0
 
     lanes: List[str] = []
     lanes.append("Поступление заявок")
@@ -367,7 +386,6 @@ def build_html_from_saved_result(saved: Dict[str, Any]) -> str:
     lane_index: Dict[str, int] = {name: i for i, name in enumerate(lanes)}
 
     svg_h = TOP_MARGIN + len(lanes) * (LANE_H + LANE_GAP) + 50
-
     scale = (SVG_WIDTH - LEFT_MARGIN - RIGHT_MARGIN) / (t_max - t_min)
 
     def x(t: float) -> float:
@@ -376,59 +394,136 @@ def build_html_from_saved_result(saved: Dict[str, Any]) -> str:
     def lane_y(i: int) -> float:
         return TOP_MARGIN + i * (LANE_H + LANE_GAP)
 
+    def lane_center(i: int) -> float:
+        return lane_y(i) + LANE_H / 2
+
+    chart_x0 = LEFT_MARGIN
+    chart_x1 = SVG_WIDTH - RIGHT_MARGIN
+
     # ---- SVG content ----
     svg_parts: List[str] = []
-    svg_parts.append(f'<svg width="{SVG_WIDTH}" height="{svg_h}" viewBox="0 0 {SVG_WIDTH} {svg_h}" '
-                     f'xmlns="http://www.w3.org/2000/svg">')
-
-    # background
+    svg_parts.append(
+        f'<svg width="{SVG_WIDTH}" height="{svg_h}" viewBox="0 0 {SVG_WIDTH} {svg_h}" '
+        f'xmlns="http://www.w3.org/2000/svg">'
+    )
     svg_parts.append(_svg_rect(0, 0, SVG_WIDTH, svg_h, fill="#ffffff", stroke="#ffffff"))
 
-    # title / axis label
-    svg_parts.append(_svg_text(10, 16, "Временная диаграмма (время в часах)", size=13, fill="#111"))
+    # legend
+    legend_y = 30
+    legend_x = LEFT_MARGIN
+    svg_parts.append(_svg_text(legend_x, legend_y - 3, "Легенда:", size=12, fill="#333"))
+
+    lx = legend_x + 70
+    svg_parts.append(_svg_rect(lx, legend_y - 12, 18, 10, fill="#b6e3a8", stroke="#3a7a2a", rx=2, title="Обслуживание"))
+    svg_parts.append(_svg_text(lx + 26, legend_y - 3, "обслуживание", size=11, fill="#333"))
+
+    lx += 130
+    svg_parts.append(_svg_rect(lx, legend_y - 12, 18, 10, fill="#ffd08a", stroke="#b06a00", rx=2, title="Ожидание в очереди"))
+    svg_parts.append(_svg_text(lx + 26, legend_y - 3, "ожидание", size=11, fill="#333"))
+
+    lx += 110
+    svg_parts.append(_svg_circle(lx + 8, legend_y - 7, 5, fill="#8aa8ff", stroke="#2546b8", title="Поступление"))
+    svg_parts.append(_svg_text(lx + 20, legend_y - 3, "поступление", size=11, fill="#333"))
+
+    lx += 125
+    svg_parts.append(_svg_circle(lx + 8, legend_y - 7, 5, fill="#2ecc71", stroke="#1c7a44", title="Выполнено"))
+    svg_parts.append(_svg_text(lx + 20, legend_y - 3, "выполнено", size=11, fill="#333"))
+
+    lx += 110
+    svg_parts.append(_svg_circle(lx + 8, legend_y - 7, 5, fill="#ff6b6b", stroke="#a11919", title="Отказ"))
+    svg_parts.append(_svg_text(lx + 20, legend_y - 3, "отказ", size=11, fill="#333"))
 
     # vertical grid (ticks)
     ticks = _nice_ticks(t_min, t_max, target=10)
     for tv in ticks:
         xx = x(tv)
-        svg_parts.append(_svg_line(xx, TOP_MARGIN - 2, xx, svg_h - 20, stroke="#e6e6e6", width=1))
+        svg_parts.append(_svg_line(xx, TOP_MARGIN - 6, xx, svg_h - 20, stroke="#e6e6e6", width=1))
         svg_parts.append(_svg_text(xx, svg_h - 6, f"{tv:.2f}", size=11, anchor="middle", fill="#555"))
 
-    # lane separators + labels
+    # lane labels + thin blue timeline for each lane
     for i, lname in enumerate(lanes):
         yy = lane_y(i)
-        svg_parts.append(_svg_line(10, yy + LANE_H + LANE_GAP / 2, SVG_WIDTH - 10, yy + LANE_H + LANE_GAP / 2,
-                                   stroke="#f0f0f0", width=1))
         svg_parts.append(_svg_text(10, yy + LANE_H / 2 + 4, lname, size=12, anchor="start", fill="#333"))
 
-    # legend
-    legend_y = 30
-    legend_x = LEFT_MARGIN
-    svg_parts.append(_svg_text(legend_x, legend_y, "Легенда:", size=12, fill="#333"))
-    lx = legend_x + 70
-    svg_parts.append(_svg_rect(lx, legend_y - 12, 18, 10, fill="#b6e3a8", stroke="#3a7a2a", rx=2, title="Обслуживание"))
-    svg_parts.append(_svg_text(lx + 26, legend_y - 3, "обслуживание", size=11, fill="#333"))
-    lx += 130
-    svg_parts.append(_svg_rect(lx, legend_y - 12, 18, 10, fill="#ffd08a", stroke="#b06a00", rx=2, title="Ожидание в очереди"))
-    svg_parts.append(_svg_text(lx + 26, legend_y - 3, "ожидание", size=11, fill="#333"))
-    lx += 110
-    svg_parts.append(_svg_circle(lx + 8, legend_y - 7, 5, fill="#8aa8ff", stroke="#2546b8", title="Поступление"))
-    svg_parts.append(_svg_text(lx + 20, legend_y - 3, "поступление", size=11, fill="#333"))
-    lx += 125
-    svg_parts.append(_svg_circle(lx + 8, legend_y - 7, 5, fill="#ff6b6b", stroke="#a11919", title="Отказ"))
-    svg_parts.append(_svg_text(lx + 20, legend_y - 3, "отказ", size=11, fill="#333"))
+        yc = yy + LANE_H / 2
 
-    # draw arrival markers
+        # ТОНКАЯ СИНЯЯ ЛИНИЯ (таймлайн) на всю ширину графика для каждой строки
+        svg_parts.append(_svg_line(
+            chart_x0, yc, chart_x1, yc,
+            stroke=TIMELINE_COLOR, width=TIMELINE_WIDTH, opacity=TIMELINE_OPACITY
+        ))
+
+        # very light separator at bottom of lane
+        svg_parts.append(_svg_line(
+            10, yy + LANE_H + LANE_GAP / 2, SVG_WIDTH - 10, yy + LANE_H + LANE_GAP / 2,
+            stroke="#f6f6f6", width=1
+        ))
+
+    # ---- connectors (orthogonal; end->done vertical) ----
+    id_to_req = {_to_int(r.get("id", 0), 0): r for r in reqs}
+
     arr_lane = lane_index["Поступление заявок"]
-    yy = lane_y(arr_lane) + LANE_H / 2
+    done_lane = lane_index["Завершено обслуживание"]
+    refuse_lane = lane_index["Отказ"]
+
+    connector_parts: List[str] = []
+    for rid, req in id_to_req.items():
+        t_arr = _to_float(req.get("t_arrival"))
+        if t_arr is None:
+            continue
+
+        t_ref = _to_float(req.get("t_refuse"))
+        t_q = _to_float(req.get("t_queue_enter"))
+        t_s = _to_float(req.get("t_service_start"))
+        t_end = _to_float(req.get("t_service_end"))
+
+        event_points: List[Tuple[float, float]] = []
+        event_points.append((x(t_arr), lane_center(arr_lane)))
+
+        if t_ref is not None:
+            event_points.append((x(t_ref), lane_center(refuse_lane)))
+            event_points = _orthogonalize(event_points)
+            connector_parts.append(_svg_polyline(event_points, stroke="#5678ff", width=1.0, opacity=0.55))
+            continue
+
+        if t_q is not None:
+            slot = queue_slot_of.get(rid)
+            if slot is not None:
+                lane_name = f"Очередь — место {slot}"
+                if lane_name in lane_index:
+                    event_points.append((x(t_q), lane_center(lane_index[lane_name])))
+
+        if t_s is not None:
+            sname = str(req.get("server_name") or "Неизвестно")
+            lane_name = f"Канал: {sname}"
+            if lane_name in lane_index:
+                event_points.append((x(t_s), lane_center(lane_index[lane_name])))
+
+        if t_end is not None and t_s is not None:
+            sname = str(req.get("server_name") or "Неизвестно")
+            lane_name = f"Канал: {sname}"
+            if lane_name in lane_index:
+                event_points.append((x(t_end), lane_center(lane_index[lane_name])))
+            event_points.append((x(t_end), lane_center(done_lane)))
+
+        event_points = _orthogonalize(event_points)
+        if len(event_points) >= 2:
+            connector_parts.append(_svg_polyline(event_points, stroke="#5678ff", width=1.0, opacity=0.55))
+
+    svg_parts.append('<g id="connectors">')
+    svg_parts.extend(connector_parts)
+    svg_parts.append('</g>')
+
+    # ---- draw arrival markers ----
+    yy = lane_center(arr_lane)
     for rid, t in arrivals:
         cx = x(t)
         label = str(rid + 1)
         svg_parts.append(_svg_circle(cx, yy, 5, fill="#8aa8ff", stroke="#2546b8",
                                      title=f"Заявка {label}: поступление t={t:.6f}"))
-        svg_parts.append(_svg_text(cx, yy - 9, label, size=10, anchor="middle", fill="#222"))
+        svg_parts.append(_svg_text(cx, yy - 11, label, size=10, anchor="middle", fill="#222"))
 
-    # draw service segments per server lane
+    # ---- draw service segments ----
     for sname, rid, t0, t1 in service_segments:
         lane_name = f"Канал: {sname}"
         if lane_name not in lane_index:
@@ -445,7 +540,7 @@ def build_html_from_saved_result(saved: Dict[str, Any]) -> str:
         ))
         svg_parts.append(_svg_text((x0 + x1) / 2, yy0 + SEG_H - 2, label, size=10, anchor="middle", fill="#0f3b0f"))
 
-    # draw queue segments per slot lane
+    # ---- draw queue segments ----
     for slot, rid, t0, t1 in queue_segments:
         lane_name = f"Очередь — место {slot}"
         if lane_name not in lane_index:
@@ -462,29 +557,27 @@ def build_html_from_saved_result(saved: Dict[str, Any]) -> str:
         ))
         svg_parts.append(_svg_text((x0 + x1) / 2, yy0 + SEG_H - 2, label, size=10, anchor="middle", fill="#5a3300"))
 
-    # served markers
-    served_lane = lane_index["Завершено обслуживание"]
-    yy = lane_y(served_lane) + LANE_H / 2
+    # ---- done markers ----
+    yy = lane_center(done_lane)
     for rid, t in served:
         cx = x(t)
         label = str(rid + 1)
         svg_parts.append(_svg_circle(cx, yy, 5, fill="#2ecc71", stroke="#1c7a44",
-                                     title=f"Заявка {label}: завершение обслуживания t={t:.6f}"))
-        svg_parts.append(_svg_text(cx, yy - 9, label, size=10, anchor="middle", fill="#145b32"))
+                                     title=f"Заявка {label}: выполнено (t={t:.6f})"))
+        svg_parts.append(_svg_text(cx, yy - 11, label, size=10, anchor="middle", fill="#145b32"))
 
-    # refused markers
-    refused_lane = lane_index["Отказ"]
-    yy = lane_y(refused_lane) + LANE_H / 2
+    # ---- refused markers ----
+    yy = lane_center(refuse_lane)
     for rid, t in refused:
         cx = x(t)
         label = str(rid + 1)
         svg_parts.append(_svg_circle(cx, yy, 5, fill="#ff6b6b", stroke="#a11919",
                                      title=f"Заявка {label}: отказ t={t:.6f}"))
-        svg_parts.append(_svg_text(cx, yy - 9, label, size=10, anchor="middle", fill="#7a1111"))
+        svg_parts.append(_svg_text(cx, yy - 11, label, size=10, anchor="middle", fill="#7a1111"))
 
-    # x-axis line at bottom
-    svg_parts.append(_svg_line(LEFT_MARGIN, svg_h - 24, SVG_WIDTH - RIGHT_MARGIN, svg_h - 24, stroke="#888", width=1.2))
-    svg_parts.append(_svg_text(SVG_WIDTH - RIGHT_MARGIN, svg_h - 28, "t", size=12, anchor="end", fill="#555"))
+    # x-axis
+    svg_parts.append(_svg_line(chart_x0, svg_h - 24, chart_x1, svg_h - 24, stroke="#888", width=1.2))
+    svg_parts.append(_svg_text(chart_x1, svg_h - 28, "t", size=12, anchor="end", fill="#555"))
 
     svg_parts.append("</svg>")
     svg = "\n".join(svg_parts)
@@ -569,7 +662,8 @@ def build_html_from_saved_result(saved: Dict[str, Any]) -> str:
       {svg}
     </div>
     <div class="note">
-      Примечание: времена указаны в часах. Места очереди восстанавливаются по событиям "вход в очередь" и "старт обслуживания".
+      Примечание: времена указаны в часах. Переходы заявок соединены линиями без диагоналей.
+      Места очереди восстанавливаются по событиям «вход в очередь» и «старт обслуживания».
       Если очередь больше {MAX_QUEUE_SLOTS_DRAW}, отображаются только первые {MAX_QUEUE_SLOTS_DRAW} мест.
     </div>
   </div>

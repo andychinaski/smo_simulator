@@ -1,7 +1,7 @@
 {
     "call_flow": 5,
     "queue_size": 2,
-    "duration": 1,
+    "duration": 10,
     "operators": [
         {
             "type": "Специалист",
