@@ -20,9 +20,6 @@ def simulate(config: Dict[str, Any]) -> SimulationResult:
     - экспоненциальное обслуживание: -ln(U)/mu
     - ограниченная общая очередь ожидания
     - политика свободных серверов: round_robin / fastest
-
-    Важно: server_utilization считается на интервале [0, time_end]
-    (даже если drain=True и дообслуживание уходит дальше time_end).
     """
     cfg = normalize_config(config)
 
@@ -144,7 +141,6 @@ def simulate(config: Dict[str, Any]) -> SimulationResult:
             handle_service_end(t, sid, rid)
 
     horizon = time_end
-    server_util = {s.id: (s.busy_time / horizon) for s in servers_list}
 
     total = len(requests)
     refused = sum(1 for r in requests if r.t_refuse is not None)
@@ -167,6 +163,5 @@ def simulate(config: Dict[str, Any]) -> SimulationResult:
 
     return SimulationResult(
         requests=requests,
-        server_utilization=server_util,
         stats=stats,
     )

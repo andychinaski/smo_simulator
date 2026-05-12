@@ -30,5 +30,4 @@ class ServerState:
 @dataclass
 class SimulationResult:
     requests: List[RequestRecord]
-    server_utilization: Dict[int, float]  # server_id -> utilization [0..1]
     stats: Dict[str, float]
