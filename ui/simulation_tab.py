@@ -154,6 +154,14 @@ class SimulationTab(QWidget):
 
         reqs = []
         for r in self._last_result.requests:
+            queue_history = [
+                {
+                    "slot": entry.slot,
+                    "t_enter": entry.t_enter,
+                    "t_leave": entry.t_leave,
+                }
+                for entry in r.queue_history
+            ]
             reqs.append({
                 "id": r.id,
                 "t_arrival": r.t_arrival,
@@ -163,6 +171,7 @@ class SimulationTab(QWidget):
                 "server_name": r.server_name,
                 "t_service_end": r.t_service_end,
                 "t_refuse": r.t_refuse,
+                "queue_history": queue_history,
             })
 
         return {
