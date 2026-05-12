@@ -1,7 +1,15 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional, List, Dict
+
+
+@dataclass
+class QueueSlotEntry:
+    """Запись о пребывании заявки в конкретном слоте очереди"""
+    slot: int
+    t_enter: float
+    t_leave: Optional[float] = None
 
 
 @dataclass
@@ -14,6 +22,7 @@ class RequestRecord:
     server_name: Optional[str] = None
     t_service_end: Optional[float] = None
     t_refuse: Optional[float] = None
+    queue_history: List[QueueSlotEntry] = field(default_factory=list)
 
 
 @dataclass

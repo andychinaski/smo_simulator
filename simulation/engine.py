@@ -8,7 +8,7 @@ import math
 
 from .config import normalize_config
 from .constants import ARRIVAL_PRIORITY, SERVICE_END_PRIORITY
-from .models import RequestRecord, SimulationResult
+from .models import RequestRecord, SimulationResult, QueueSlotEntry
 from .servers import FreeServerPool, prepare_servers
 from .types import Event, EventKind
 
@@ -47,6 +47,12 @@ def simulate(config: Dict[str, Any]) -> SimulationResult:
     free_pool = FreeServerPool(servers_list, mode=cfg.policy)
     q = deque()  # request_id
     requests: List[RequestRecord] = []
+    
+    # Отслеживание слотов очереди: slot -> request_id
+    # Слоты нумеруются от 1 до queue_capacity
+    slot_to_request: Dict[int, int] = {}
+    # Для быстрого поиска: request_id -> slot
+    request_to_slot: Dict[int, int] = {}
 
     event_heap: List[Event] = []
     seq = 0
@@ -61,6 +67,17 @@ def simulate(config: Dict[str, Any]) -> SimulationResult:
         s = servers_by_id[server_id]
         r = requests[req_id]
 
+        # Если заявка была в очереди, фиксируем выход из слота
+        if req_id in request_to_slot:
+            slot = request_to_slot.pop(req_id)
+            del slot_to_request[slot]
+            # Находим последнюю запись в истории очереди для этой заявки и закрываем её
+            if r.queue_history:
+                for entry in reversed(r.queue_history):
+                    if entry.t_leave is None:
+                        entry.t_leave = t
+                        break
+
         s.busy = True
         s.busy_since = t
 
@@ -72,6 +89,17 @@ def simulate(config: Dict[str, Any]) -> SimulationResult:
         push_event(t + dt, "SERVICE_END", (server_id, req_id))
 
     arrivals_count = 0
+
+    def assign_queue_slot(req_id: int, t: float) -> int:
+        """Назначает заявке первый свободный слот очереди"""
+        # Ищем первый свободный слот от 1 до queue_capacity
+        for slot in range(1, queue_capacity + 1):
+            if slot not in slot_to_request:
+                slot_to_request[slot] = req_id
+                request_to_slot[req_id] = slot
+                return slot
+        # Не должно произойти, если проверка len(q) < queue_capacity пройдена
+        raise RuntimeError("Нет свободного слота очереди")
 
     def handle_arrival(t: float) -> None:
         nonlocal arrivals_count
@@ -90,6 +118,9 @@ def simulate(config: Dict[str, Any]) -> SimulationResult:
             if len(q) < queue_capacity:
                 requests[req_id].t_queue_enter = t
                 q.append(req_id)
+                # Назначаем слот и записываем в историю
+                slot = assign_queue_slot(req_id, t)
+                requests[req_id].queue_history.append(QueueSlotEntry(slot=slot, t_enter=t))
             else:
                 requests[req_id].t_refuse = t
 
@@ -112,6 +143,40 @@ def simulate(config: Dict[str, Any]) -> SimulationResult:
 
         if q:
             next_id = q.popleft()
+            
+            # Освобождаем слот уходящей заявки и сдвигаем остальные
+            if next_id in request_to_slot:
+                leaving_slot = request_to_slot.pop(next_id)
+                del slot_to_request[leaving_slot]
+                
+                # Фиксируем выход из слота в истории
+                next_r = requests[next_id]
+                if next_r.queue_history:
+                    for entry in reversed(next_r.queue_history):
+                        if entry.t_leave is None:
+                            entry.t_leave = t
+                            break
+                
+                # Сдвигаем все заявки, которые были в слотах с номером больше leaving_slot
+                for shifted_req_id in list(q):
+                    if shifted_req_id in request_to_slot:
+                        current_slot = request_to_slot[shifted_req_id]
+                        if current_slot > leaving_slot:
+                            new_slot = current_slot - 1
+                            # Записываем выход из старого слота
+                            shifted_r = requests[shifted_req_id]
+                            if shifted_r.queue_history:
+                                for entry in reversed(shifted_r.queue_history):
+                                    if entry.t_leave is None:
+                                        entry.t_leave = t
+                                        break
+                            # Назначаем новый слот
+                            request_to_slot[shifted_req_id] = new_slot
+                            slot_to_request[new_slot] = shifted_req_id
+                            del slot_to_request[current_slot]
+                            # Записываем вход в новый слот
+                            shifted_r.queue_history.append(QueueSlotEntry(slot=new_slot, t_enter=t))
+            
             start_service(t, server_id, next_id)
         else:
             free_pool.add(server_id)
