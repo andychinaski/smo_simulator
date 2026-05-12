@@ -17,10 +17,6 @@ simulation/
 ### __init__.py
 Публичный экспорт основного API пакета (simulate и модели). Удобно для импорта `from simulation import simulate`.
 
-### simulator.py
-Совместимость. Сохраняет старую точку входа `simulation.simulator`.
-Реэкспортирует `simulate` и dataclass-модели
-
 ### engine.py
 Основное ядро дискретно-событийной симуляции: очередь событий, обработчики arrival/service_end, сбор статистики.
 

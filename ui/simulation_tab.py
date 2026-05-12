@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
 )
 
 from ui.model_params_widget import ModelParamsWidget
-from simulation.simulator import simulate, build_servers
+from simulation import simulate, build_servers
 
 
 class SimulationTab(QWidget):
