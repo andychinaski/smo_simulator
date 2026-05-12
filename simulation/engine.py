@@ -162,12 +162,7 @@ def simulate(config: Dict[str, Any]) -> SimulationResult:
     stats = {
         "total_arrivals": float(total),
         "served": float(served),
-        "refused": float(refused),
-        "refuse_rate": (refused / total) if total else 0.0,
-        "avg_wait": (sum(waits) / len(waits)) if waits else 0.0,
-        "avg_system_time": (sum(sys_times) / len(sys_times)) if sys_times else 0.0,
-        "time_end": float(time_end),
-        "last_event_time": float(current_time),
+        "refused": float(refused)
     }
 
     return SimulationResult(
