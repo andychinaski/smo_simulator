@@ -5,7 +5,6 @@
 ```text
 simulation/
 ├─ __init__.py
-├─ simulator.py
 ├─ engine.py
 ├─ config.py
 ├─ models.py
