@@ -2,6 +2,7 @@
 
 ## Структура
 
+```text
 simulation/
 ├─ __init__.py
 ├─ simulator.py
@@ -11,6 +12,7 @@ simulation/
 ├─ servers.py
 ├─ types.py
 └─ constants.py
+```
 
 ## Описание файлов
 
