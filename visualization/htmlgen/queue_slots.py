@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import heapq
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Tuple, Optional
 
 from .formatting import to_float, to_int
 
@@ -22,11 +22,57 @@ def expand_server_names_from_config(config: Dict[str, Any]) -> List[str]:
     return names
 
 
+def assign_queue_slots_from_history(
+    requests: List[Dict[str, Any]],
+    queue_size: int,
+    t_fallback_end: float,
+) -> List[Tuple[int, int, float, float]]:
+    """
+    Строит сегменты очереди на основе queue_history из данных симуляции.
+    Возвращает список кортежей (slot, req_id, t_enter, t_leave).
+    """
+    if queue_size <= 0:
+        return []
+
+    segments: List[Tuple[int, int, float, float]] = []
+    id_to_req = {to_int(r.get("id", 0), 0): r for r in requests}
+
+    for r in requests:
+        rid = to_int(r.get("id", 0), 0)
+        queue_history = r.get("queue_history") or []
+        
+        for entry in queue_history:
+            slot = to_int(entry.get("slot"), 0)
+            t_enter = to_float(entry.get("t_enter"))
+            t_leave = to_float(entry.get("t_leave"))
+            
+            if slot <= 0 or t_enter is None:
+                continue
+            
+            # Если t_leave не указан, используем fallback
+            if t_leave is None:
+                t_leave = t_fallback_end
+            
+            segments.append((slot, rid, t_enter, t_leave))
+
+    segments.sort(key=lambda x: (x[0], x[2], x[3]))
+    return segments
+
+
 def assign_queue_slots(
     requests: List[Dict[str, Any]],
     queue_size: int,
     t_fallback_end: float,
 ) -> List[Tuple[int, int, float, float]]:
+    """
+    Старая логика на основе t_queue_enter/t_service_start.
+    Используется как фоллбэк, если queue_history отсутствует.
+    """
+    # Проверяем, есть ли у хотя бы одной заявки queue_history
+    has_history = any(r.get("queue_history") for r in requests)
+    if has_history:
+        return assign_queue_slots_from_history(requests, queue_size, t_fallback_end)
+    
     if queue_size <= 0:
         return []
 

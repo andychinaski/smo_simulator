@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
 )
 
 from ui.model_params_widget import ModelParamsWidget
-from simulation.simulator import simulate, build_servers
+from simulation import simulate, build_servers
 
 
 class SimulationTab(QWidget):
@@ -133,19 +133,6 @@ class SimulationTab(QWidget):
         lines.append(f"  Пришло заявок: {int(res.stats.get('total_arrivals', 0))}")
         lines.append(f"  Обслужено: {int(res.stats.get('served', 0))}")
         lines.append(f"  Отказов: {int(res.stats.get('refused', 0))}")
-        lines.append(f"  Доля отказов: {res.stats.get('refuse_rate', 0.0):.4f}")
-        lines.append(f"  Среднее ожидание в очереди: {res.stats.get('avg_wait', 0.0):.6f} ч")
-        lines.append(f"  Среднее время в системе: {res.stats.get('avg_system_time', 0.0):.6f} ч")
-        lines.append("")
-        lines.append("Утилизация каналов (на интервале [0, duration]):")
-
-        if servers:
-            for s in servers:
-                util = res.server_utilization.get(s.id, 0.0)
-                lines.append(f"  {s.name} (μ={s.mu}): {util:.4f}")
-        else:
-            for sid in sorted(res.server_utilization.keys()):
-                lines.append(f"  Server #{sid}: {res.server_utilization[sid]:.4f}")
 
         self.set_results_text("\n".join(lines))
 
@@ -167,6 +154,14 @@ class SimulationTab(QWidget):
 
         reqs = []
         for r in self._last_result.requests:
+            queue_history = [
+                {
+                    "slot": entry.slot,
+                    "t_enter": entry.t_enter,
+                    "t_leave": entry.t_leave,
+                }
+                for entry in r.queue_history
+            ]
             reqs.append({
                 "id": r.id,
                 "t_arrival": r.t_arrival,
@@ -176,6 +171,7 @@ class SimulationTab(QWidget):
                 "server_name": r.server_name,
                 "t_service_end": r.t_service_end,
                 "t_refuse": r.t_refuse,
+                "queue_history": queue_history,
             })
 
         return {
