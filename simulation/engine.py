@@ -205,20 +205,24 @@ def simulate(config: Dict[str, Any]) -> SimulationResult:
             sid, rid = payload
             handle_service_end(t, sid, rid)
 
-    horizon = time_end
+    def in_horizon(t: Optional[float]) -> bool:
+        return t is not None and 0.0 <= t <= time_end
 
-    total = len(requests)
-    refused = sum(1 for r in requests if r.t_refuse is not None)
-    served = sum(1 for r in requests if r.t_service_end is not None)
-
-    waits: List[float] = []
-    sys_times: List[float] = []
-
-    for r in requests:
-        if r.t_service_start is not None:
-            waits.append(0.0 if r.t_queue_enter is None else (r.t_service_start - r.t_queue_enter))
-        if r.t_service_end is not None:
-            sys_times.append(r.t_service_end - r.t_arrival)
+    total = sum(1 for r in requests if in_horizon(r.t_arrival))
+    refused = sum(
+        1
+        for r in requests
+        if in_horizon(r.t_arrival) and in_horizon(r.t_refuse)
+    )
+    served = sum(
+        1
+        for r in requests
+        if (
+            in_horizon(r.t_arrival)
+            and in_horizon(r.t_service_start)
+            and in_horizon(r.t_service_end)
+        )
+    )
 
     stats = {
         "total_arrivals": float(total),

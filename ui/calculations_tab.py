@@ -397,22 +397,47 @@ class CalculationsTab(QWidget):
         def in_interval(t: Optional[float]) -> bool:
             return t is not None and (t0 <= t <= t1)
 
-        N = 0
-        N_ref = 0
-        N_serv = 0
+        arrived_in_window = 0
+        observed_served: List[Dict[str, Any]] = []
+        observed_refused: List[Dict[str, Any]] = []
 
         for r in requests:
             t_arr = _safe_float(r.get("t_arrival"))
             if in_interval(t_arr):
-                N += 1
+                arrived_in_window += 1
+            else:
+                continue
 
             t_ref = _safe_float(r.get("t_refuse"))
             if in_interval(t_ref):
-                N_ref += 1
+                observed_refused.append(r)
+                continue
 
+            t_start = _safe_float(r.get("t_service_start"))
             t_end = _safe_float(r.get("t_service_end"))
-            if in_interval(t_end):
-                N_serv += 1
+            if in_interval(t_start) and in_interval(t_end):
+                observed_served.append(r)
+
+        N_serv = len(observed_served)
+        N_ref = len(observed_refused)
+        N = N_serv + N_ref
+
+        waits: List[float] = []
+        service_times: List[float] = []
+        system_times: List[float] = []
+
+        for r in observed_served:
+            t_arr = _safe_float(r.get("t_arrival"))
+            t_start = _safe_float(r.get("t_service_start"))
+            t_end = _safe_float(r.get("t_service_end"))
+            if t_arr is None or t_start is None or t_end is None:
+                continue
+
+            wait = max(0.0, t_start - t_arr)
+            if wait > 0:
+                waits.append(wait)
+            service_times.append(max(0.0, t_end - t_start))
+            system_times.append(max(0.0, t_end - t_arr))
 
         # compute implemented metrics
         results: Dict[str, Any] = {}
@@ -427,6 +452,10 @@ class CalculationsTab(QWidget):
             results["throughput"] = N_serv / Tn
         else:
             results["throughput"] = None
+
+        results["avg_wait_time"] = (sum(waits) / len(waits)) if waits else None
+        results["avg_service_time"] = (sum(service_times) / len(service_times)) if service_times else None
+        results["avg_system_time"] = (sum(system_times) / len(system_times)) if system_times else None
 
         # placeholders for non-implemented selected metrics
         for k in selected:
@@ -448,9 +477,10 @@ class CalculationsTab(QWidget):
         lines.append(f"  warm-up t0 = {t0} ч")
         lines.append(f"  t1 = {t1} ч")
         lines.append(f"  Tн = {Tn} ч")
-        lines.append(f"  N (пришло в окне): {N}")
-        lines.append(f"  Nобс (завершено в окне): {N_serv}")
-        lines.append(f"  Nотк (отказов в окне): {N_ref}")
+        lines.append(f"  Пришло в окне: {arrived_in_window}")
+        lines.append(f"  N (учтено, полный жизненный цикл в окне): {N}")
+        lines.append(f"  Nобс (пришло и завершило обслуживание в окне): {N_serv}")
+        lines.append(f"  Nотк (пришло и получило отказ в окне): {N_ref}")
         lines.append("")
 
         lines.append("Результаты (часть метрик пока заглушки):")
