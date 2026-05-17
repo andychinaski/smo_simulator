@@ -67,6 +67,58 @@ def _safe_int(x: Any, default: int = 0) -> int:
         return default
 
 
+def _total_channels(config: Dict[str, Any], requests: List[Dict[str, Any]]) -> int:
+    operators = config.get("operators")
+    if isinstance(operators, list):
+        total = 0
+        for op in operators:
+            if isinstance(op, dict):
+                total += max(0, _safe_int(op.get("count"), 1))
+        if total > 0:
+            return total
+
+    max_server_id = -1
+    for r in requests:
+        sid = _safe_int(r.get("server_id"), -1) if isinstance(r, dict) else -1
+        max_server_id = max(max_server_id, sid)
+    return max_server_id + 1 if max_server_id >= 0 else 0
+
+
+def _state_time_by_level(intervals: List[Tuple[float, float]], t0: float, t1: float) -> Dict[int, float]:
+    events: List[Tuple[float, int]] = []
+    for start, end in intervals:
+        a = max(t0, float(start))
+        b = min(t1, float(end))
+        if b > a:
+            events.append((a, 1))
+            events.append((b, -1))
+
+    if t1 <= t0:
+        return {}
+
+    events.sort(key=lambda item: (item[0], -item[1]))
+    times: Dict[int, float] = {}
+    level = 0
+    prev = t0
+    i = 0
+
+    while i < len(events):
+        t = min(max(events[i][0], t0), t1)
+        if t > prev:
+            times[level] = times.get(level, 0.0) + (t - prev)
+            prev = t
+
+        event_t = events[i][0]
+        while i < len(events) and events[i][0] == event_t:
+            level += events[i][1]
+            i += 1
+
+    if prev < t1:
+        times[level] = times.get(level, 0.0) + (t1 - prev)
+
+    return times
+
+
 class CalculationsTab(QWidget):
     """
     Вкладка 'Расчеты':
@@ -397,22 +449,71 @@ class CalculationsTab(QWidget):
         def in_interval(t: Optional[float]) -> bool:
             return t is not None and (t0 <= t <= t1)
 
-        N = 0
-        N_ref = 0
-        N_serv = 0
+        arrived_in_window = 0
+        observed_served: List[Dict[str, Any]] = []
+        observed_refused: List[Dict[str, Any]] = []
 
         for r in requests:
             t_arr = _safe_float(r.get("t_arrival"))
             if in_interval(t_arr):
-                N += 1
+                arrived_in_window += 1
+            else:
+                continue
 
             t_ref = _safe_float(r.get("t_refuse"))
             if in_interval(t_ref):
-                N_ref += 1
+                observed_refused.append(r)
+                continue
 
+            t_start = _safe_float(r.get("t_service_start"))
             t_end = _safe_float(r.get("t_service_end"))
-            if in_interval(t_end):
-                N_serv += 1
+            if in_interval(t_start) and in_interval(t_end):
+                observed_served.append(r)
+
+        N_serv = len(observed_served)
+        N_ref = len(observed_refused)
+        N = N_serv + N_ref
+
+        waits: List[float] = []
+        service_times: List[float] = []
+        busy_intervals: List[Tuple[float, float]] = []
+        queue_intervals: List[Tuple[float, float]] = []
+        system_intervals: List[Tuple[float, float]] = []
+
+        for r in observed_served:
+            t_arr = _safe_float(r.get("t_arrival"))
+            t_start = _safe_float(r.get("t_service_start"))
+            t_end = _safe_float(r.get("t_service_end"))
+            if t_arr is None or t_start is None or t_end is None:
+                continue
+
+            wait = max(0.0, t_start - t_arr)
+            if wait > 0:
+                waits.append(wait)
+            service_time = max(0.0, t_end - t_start)
+            service_times.append(service_time)
+
+            busy_intervals.append((t_start, t_end))
+            system_intervals.append((t_arr, t_end))
+
+            queue_history = r.get("queue_history")
+            if isinstance(queue_history, list) and queue_history:
+                for entry in queue_history:
+                    if not isinstance(entry, dict):
+                        continue
+                    q_enter = _safe_float(entry.get("t_enter"))
+                    q_leave = _safe_float(entry.get("t_leave"))
+                    if q_enter is not None and q_leave is not None and q_leave > q_enter:
+                        queue_intervals.append((q_enter, q_leave))
+            else:
+                t_queue_enter = _safe_float(r.get("t_queue_enter"))
+                if t_queue_enter is not None and t_start > t_queue_enter:
+                    queue_intervals.append((t_queue_enter, t_start))
+
+        channels_count = _total_channels(config, requests)
+        busy_time_by_count = _state_time_by_level(busy_intervals, t0, t1)
+        queue_time_by_count = _state_time_by_level(queue_intervals, t0, t1)
+        system_time_by_count = _state_time_by_level(system_intervals, t0, t1)
 
         # compute implemented metrics
         results: Dict[str, Any] = {}
@@ -427,6 +528,50 @@ class CalculationsTab(QWidget):
             results["throughput"] = N_serv / Tn
         else:
             results["throughput"] = None
+
+        if Tn > 0:
+            results["p_busy_1"] = busy_time_by_count.get(1, 0.0) / Tn
+            results["p_busy_2"] = busy_time_by_count.get(2, 0.0) / Tn
+            results["avg_busy_channels"] = sum(k * t for k, t in busy_time_by_count.items()) / Tn
+            results["p_queue_1"] = queue_time_by_count.get(1, 0.0) / Tn
+            results["p_queue_2"] = queue_time_by_count.get(2, 0.0) / Tn
+            results["avg_queue_len"] = sum(k * t for k, t in queue_time_by_count.items()) / Tn
+            results["avg_system_count"] = sum(k * t for k, t in system_time_by_count.items()) / Tn
+
+            if channels_count > 0:
+                idle_at_least1 = sum(
+                    t for busy_count, t in busy_time_by_count.items()
+                    if busy_count < channels_count
+                )
+                idle_2 = sum(
+                    t for busy_count, t in busy_time_by_count.items()
+                    if channels_count - busy_count == 2
+                )
+                results["p_idle_at_least1"] = idle_at_least1 / Tn
+                results["p_idle_2"] = idle_2 / Tn
+                results["p_idle_system"] = busy_time_by_count.get(0, 0.0) / Tn
+            else:
+                results["p_idle_at_least1"] = None
+                results["p_idle_2"] = None
+                results["p_idle_system"] = None
+        else:
+            results["p_busy_1"] = None
+            results["p_busy_2"] = None
+            results["avg_busy_channels"] = None
+            results["p_idle_at_least1"] = None
+            results["p_idle_2"] = None
+            results["p_idle_system"] = None
+            results["avg_queue_len"] = None
+            results["p_queue_1"] = None
+            results["p_queue_2"] = None
+            results["avg_system_count"] = None
+
+        results["avg_wait_time"] = (sum(waits) / len(waits)) if waits else None
+        results["avg_service_time"] = (sum(service_times) / len(service_times)) if service_times else None
+        if results["avg_service_time"] is not None:
+            results["avg_system_time"] = (results["avg_wait_time"] or 0.0) + results["avg_service_time"]
+        else:
+            results["avg_system_time"] = None
 
         # placeholders for non-implemented selected metrics
         for k in selected:
@@ -448,21 +593,20 @@ class CalculationsTab(QWidget):
         lines.append(f"  warm-up t0 = {t0} ч")
         lines.append(f"  t1 = {t1} ч")
         lines.append(f"  Tн = {Tn} ч")
-        lines.append(f"  N (пришло в окне): {N}")
-        lines.append(f"  Nобс (завершено в окне): {N_serv}")
-        lines.append(f"  Nотк (отказов в окне): {N_ref}")
+        lines.append(f"  Пришло в окне: {arrived_in_window}")
+        lines.append(f"  N (учтено, полный жизненный цикл в окне): {N}")
+        lines.append(f"  Nобс (пришло и завершило обслуживание в окне): {N_serv}")
+        lines.append(f"  Nотк (пришло и получило отказ в окне): {N_ref}")
+        lines.append(f"  Каналов в системе: {channels_count}")
         lines.append("")
 
-        lines.append("Результаты (часть метрик пока заглушки):")
+        lines.append("Результаты:")
         for k in selected:
             v = results.get(k)
             if isinstance(v, float):
                 lines.append(f"  - {name_by_key.get(k, k)} = {v:.6f}")
             else:
                 lines.append(f"  - {name_by_key.get(k, k)} = —")
-
-        lines.append("")
-        lines.append("Примечание: сейчас реально считаются только метрики 1–3; остальные будут реализованы следующим шагом.")
 
         report_text = "\n".join(lines)
         self.box.setPlainText(report_text)

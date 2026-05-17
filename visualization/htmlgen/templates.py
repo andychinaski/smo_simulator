@@ -6,10 +6,10 @@ from typing import Any, Dict, List
 
 ZOOM_STOPS: List[float] = [
     0.25, 0.33, 0.5, 0.67, 0.75, 1.0, 1.25, 1.5, 2.0, 2.5,
-    3.0, 4.0, 5.0, 6.0, 8.0, 10.0, 12.0, 15.0,
+    3.0, 4.0, 5.0, 6.0, 8.0, 10.0, 12.0, 15.0, 20.0, 25.0, 30.0,
 ]
 ZOOM_MIN: float = 0.25
-ZOOM_MAX: float = 15.0
+ZOOM_MAX: float = 30.0
 ZOOM_DEFAULT: float = 1.0
 ZOOM_DEFAULT_IDX: int = 5  # индекс 1.0 в списке
 
@@ -169,6 +169,107 @@ h2 { margin: 0 0 8px 0; font-size: 15px; }
   font-size: 12px;
   margin-top: 6px;
 }
+
+.parameter-note {
+  margin: 0 0 14px 0;
+  max-width: 1100px;
+}
+
+.experiment-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 12px;
+}
+
+.experiment-card h3,
+.chart-card h3 {
+  margin: 0 0 8px 0;
+  font-size: 14px;
+}
+
+.experiment-table {
+  margin-bottom: 8px;
+}
+
+.operators-title {
+  color: #555;
+  font-size: 12px;
+  font-weight: 600;
+  margin: 8px 0 4px;
+}
+
+.mini-table th,
+.mini-table td {
+  font-size: 11px;
+}
+
+.charts-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.chart-card {
+  overflow-x: auto;
+}
+
+.parameter-chart {
+  display: block;
+  width: min(100%, 920px);
+  min-width: 720px;
+  height: auto;
+  background: #fff;
+}
+
+.chart-plot-bg {
+  fill: #fff;
+}
+
+.chart-grid {
+  stroke: #e6e6e6;
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.chart-grid-x {
+  stroke: #f0f0f0;
+}
+
+.chart-axis {
+  stroke: #444;
+  stroke-width: 1.2;
+  vector-effect: non-scaling-stroke;
+}
+
+.chart-line {
+  fill: none;
+  stroke: #2563eb;
+  stroke-width: 2.2;
+  vector-effect: non-scaling-stroke;
+}
+
+.chart-point {
+  fill: #fff;
+  stroke: #1d4ed8;
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.chart-axis-label,
+.chart-caption,
+.chart-point-label {
+  fill: #555;
+  font-size: 11px;
+}
+
+.chart-caption {
+  font-weight: 600;
+}
+
+.chart-point-label {
+  fill: #222;
+  font-size: 10px;
+}
 """.strip()
 
 
@@ -181,7 +282,7 @@ JS_TEXT = """
 
   const FALLBACK_ZOOM_STOPS = [
     0.25, 0.33, 0.5, 0.67, 0.75, 1.0, 1.25, 1.5, 2.0, 2.5,
-    3.0, 4.0, 5.0, 6.0, 8.0, 10.0, 12.0, 15.0
+    3.0, 4.0, 5.0, 6.0, 8.0, 10.0, 12.0, 15.0, 20.0, 25.0, 30.0
   ];
 
   const baseWidth = Number(meta.baseWidth || 0);
@@ -193,7 +294,7 @@ JS_TEXT = """
   const svgH = Number.isFinite(meta.svgH) ? Number(meta.svgH) : 400.0;
 
   const ZOOM_MIN = Number.isFinite(meta.zoomMin) ? Number(meta.zoomMin) : 0.25;
-  const ZOOM_MAX = Number.isFinite(meta.zoomMax) ? Number(meta.zoomMax) : 15.0;
+  const ZOOM_MAX = Number.isFinite(meta.zoomMax) ? Number(meta.zoomMax) : 30.0;
   const ZOOM_STOPS = Array.isArray(meta.zoomStops) && meta.zoomStops.length ? meta.zoomStops : FALLBACK_ZOOM_STOPS;
 
   let zoom = 1.0;
