@@ -6,10 +6,10 @@ from typing import Any, Dict, List
 
 ZOOM_STOPS: List[float] = [
     0.25, 0.33, 0.5, 0.67, 0.75, 1.0, 1.25, 1.5, 2.0, 2.5,
-    3.0, 4.0, 5.0, 6.0, 8.0, 10.0, 12.0, 15.0,
+    3.0, 4.0, 5.0, 6.0, 8.0, 10.0, 12.0, 15.0, 20.0, 25.0, 30.0,
 ]
 ZOOM_MIN: float = 0.25
-ZOOM_MAX: float = 15.0
+ZOOM_MAX: float = 30.0
 ZOOM_DEFAULT: float = 1.0
 ZOOM_DEFAULT_IDX: int = 5  # индекс 1.0 в списке
 
@@ -282,7 +282,7 @@ JS_TEXT = """
 
   const FALLBACK_ZOOM_STOPS = [
     0.25, 0.33, 0.5, 0.67, 0.75, 1.0, 1.25, 1.5, 2.0, 2.5,
-    3.0, 4.0, 5.0, 6.0, 8.0, 10.0, 12.0, 15.0
+    3.0, 4.0, 5.0, 6.0, 8.0, 10.0, 12.0, 15.0, 20.0, 25.0, 30.0
   ];
 
   const baseWidth = Number(meta.baseWidth || 0);
@@ -294,7 +294,7 @@ JS_TEXT = """
   const svgH = Number.isFinite(meta.svgH) ? Number(meta.svgH) : 400.0;
 
   const ZOOM_MIN = Number.isFinite(meta.zoomMin) ? Number(meta.zoomMin) : 0.25;
-  const ZOOM_MAX = Number.isFinite(meta.zoomMax) ? Number(meta.zoomMax) : 15.0;
+  const ZOOM_MAX = Number.isFinite(meta.zoomMax) ? Number(meta.zoomMax) : 30.0;
   const ZOOM_STOPS = Array.isArray(meta.zoomStops) && meta.zoomStops.length ? meta.zoomStops : FALLBACK_ZOOM_STOPS;
 
   let zoom = 1.0;
