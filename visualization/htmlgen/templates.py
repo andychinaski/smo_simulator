@@ -89,6 +89,15 @@ h2 { margin: 0 0 8px 0; font-size: 15px; }
 .kv-table td.k { width: 52%; color:#555; }
 .kv-table td.v { width: 48%; }
 
+.calc-table th:nth-child(1),
+.calc-table td:nth-child(1) { width: 18%; }
+.calc-table th:nth-child(2),
+.calc-table td:nth-child(2) { width: 12%; }
+.calc-table th:nth-child(3),
+.calc-table td:nth-child(3) { width: 24%; }
+.calc-table th:nth-child(4),
+.calc-table td:nth-child(4) { width: 46%; }
+
 .section {
   margin-top: 14px;
 }
