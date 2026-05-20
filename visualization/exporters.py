@@ -9,7 +9,7 @@ from xml.sax.saxutils import escape as xml_escape
 from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QFont, QImage, QPainter, QPainterPath, QPen
 
-from .htmlgen.formatting import to_float, to_int
+from .htmlgen.formatting import CALC_METRIC_NAMES, to_float, to_int
 from .htmlgen.queue_slots import assign_queue_slots, expand_server_names_from_config
 
 
@@ -41,6 +41,27 @@ def export_timeline_xlsx(saved: Dict[str, Any], path: str) -> None:
             req = id_to_req.get(rid, {})
             row.append(_time_for_lane(lane, req, queue_slot_times.get((lane, rid))))
         rows.append(row)
+
+    _write_xlsx(rows, path)
+
+
+def export_calculation_parameters_xlsx(saved_results: Sequence[Dict[str, Any]], path: str) -> None:
+    experiments = _extract_calculation_experiments(saved_results)
+    if not experiments:
+        raise ValueError("Нет корректных JSON-файлов с блоком calculations.results")
+
+    experiments.sort(key=lambda item: _capacity_sort_value(item[0]))
+    metric_keys = _collect_calculation_metric_keys(experiments)
+    rows: List[List[Any]] = [[
+        "Суммарная пропускная способность каналов",
+        *[CALC_METRIC_NAMES.get(key, key) for key in metric_keys],
+    ]]
+
+    for config, results in experiments:
+        rows.append([
+            _total_service_capacity(config),
+            *[results.get(key) for key in metric_keys],
+        ])
 
     _write_xlsx(rows, path)
 
@@ -123,6 +144,58 @@ def _extract_payload(saved: Dict[str, Any]) -> Tuple[Dict[str, Any], List[Dict[s
     if not isinstance(requests, list):
         requests = []
     return config, [r for r in requests if isinstance(r, dict)]
+
+
+def _extract_calculation_experiments(saved_results: Sequence[Dict[str, Any]]) -> List[Tuple[Dict[str, Any], Dict[str, Any]]]:
+    experiments: List[Tuple[Dict[str, Any], Dict[str, Any]]] = []
+    for saved in saved_results:
+        if not isinstance(saved, dict):
+            continue
+        config = saved.get("config")
+        calculations = saved.get("calculations")
+        if not isinstance(config, dict) or not isinstance(calculations, dict):
+            continue
+        results = calculations.get("results")
+        if isinstance(results, dict) and results:
+            experiments.append((config, results))
+    return experiments
+
+
+def _collect_calculation_metric_keys(experiments: Sequence[Tuple[Dict[str, Any], Dict[str, Any]]]) -> List[str]:
+    metric_keys: List[str] = []
+    seen = set()
+    for _config, results in experiments:
+        for key in results:
+            key_text = str(key)
+            if key_text not in seen:
+                seen.add(key_text)
+                metric_keys.append(key_text)
+    return metric_keys
+
+
+def _total_service_capacity(config: Dict[str, Any]) -> Optional[float]:
+    operators = config.get("operators")
+    if isinstance(operators, list):
+        total = 0.0
+        for op in operators:
+            if not isinstance(op, dict):
+                continue
+            mu = to_float(op.get("mu")) or 0.0
+            count = to_float(op.get("count")) or 1.0
+            total += mu * count
+        return total
+
+    service_rates = config.get("service_rates")
+    if isinstance(service_rates, list):
+        values = [to_float(value) for value in service_rates]
+        return sum(value for value in values if value is not None)
+
+    return None
+
+
+def _capacity_sort_value(config: Dict[str, Any]) -> float:
+    capacity = _total_service_capacity(config)
+    return capacity if capacity is not None else float("inf")
 
 
 def _build_lanes(config: Dict[str, Any], requests: List[Dict[str, Any]]) -> List[str]:
