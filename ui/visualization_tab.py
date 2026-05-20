@@ -27,6 +27,7 @@ from visualization.html_generator import (
 from visualization.exporters import (
     PngExportOptions,
     export_calculation_parameters_xlsx,
+    export_request_counts_xlsx,
     export_timeline_png,
     export_timeline_xlsx,
 )
@@ -63,6 +64,10 @@ class VisualizationTab(QWidget):
         self.export_parameters_xlsx_button = QPushButton("Массовая выгрузка параметров в XLSX")
         self.export_parameters_xlsx_button.clicked.connect(self.export_parameters_xlsx)
         layout.addWidget(self.export_parameters_xlsx_button)
+
+        self.export_request_counts_xlsx_button = QPushButton("Массовая выгрузка количества заявок в XLSX")
+        self.export_request_counts_xlsx_button.clicked.connect(self.export_request_counts_xlsx)
+        layout.addWidget(self.export_request_counts_xlsx_button)
 
         export_layout = QHBoxLayout()
 
@@ -206,6 +211,31 @@ class VisualizationTab(QWidget):
         self.status_label.setText(f"XLSX с параметрами сохранен: {xlsx_path}")
         QMessageBox.information(self, "Готово", f"XLSX с параметрами сохранен:\n{xlsx_path}")
 
+    def export_request_counts_xlsx(self):
+        payloads = self._pick_and_load_simulation_jsons()
+        if not payloads:
+            return
+
+        xlsx_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Сохранить таблицу количества заявок",
+            "request_counts.xlsx",
+            "Excel (*.xlsx)"
+        )
+        if not xlsx_path:
+            return
+        if not xlsx_path.lower().endswith(".xlsx"):
+            xlsx_path += ".xlsx"
+
+        try:
+            export_request_counts_xlsx(payloads, xlsx_path)
+        except Exception as e:
+            QMessageBox.critical(self, "Ошибка", f"Не удалось экспортировать количество заявок в XLSX:\n{e}")
+            return
+
+        self.status_label.setText(f"XLSX с количеством заявок сохранен: {xlsx_path}")
+        QMessageBox.information(self, "Готово", f"XLSX с количеством заявок сохранен:\n{xlsx_path}")
+
     def export_xlsx(self):
         saved = self._pick_and_load_simulation_json()
         if saved is None:
@@ -316,6 +346,45 @@ class VisualizationTab(QWidget):
 
         if not payloads:
             QMessageBox.critical(self, "Ошибка", "Не удалось прочитать ни один JSON-файл с расчетами.")
+
+        return payloads
+
+    def _pick_and_load_simulation_jsons(self) -> List[Dict[str, Any]]:
+        json_paths, _ = QFileDialog.getOpenFileNames(
+            self,
+            "Выберите JSON-файлы с результатами симуляции",
+            "results",
+            "JSON (*.json)"
+        )
+        if not json_paths:
+            return []
+
+        payloads: List[Dict[str, Any]] = []
+        errors: List[str] = []
+
+        for path in json_paths:
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                if not isinstance(data, dict):
+                    raise ValueError("ожидался JSON-объект")
+                if not isinstance(data.get("config"), dict):
+                    raise ValueError("нет блока config")
+                if not isinstance(data.get("requests"), list) and not isinstance(data.get("summary"), dict):
+                    raise ValueError("нет данных requests или summary")
+                payloads.append(data)
+            except Exception as e:
+                errors.append(f"{os.path.basename(path)}: {e}")
+
+        if errors:
+            QMessageBox.warning(
+                self,
+                "Часть файлов не прочитана",
+                "Некоторые JSON-файлы пропущены:\n" + "\n".join(errors)
+            )
+
+        if not payloads:
+            QMessageBox.critical(self, "Ошибка", "Не удалось прочитать ни один JSON-файл с результатами симуляции.")
 
         return payloads
 

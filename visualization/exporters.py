@@ -66,6 +66,29 @@ def export_calculation_parameters_xlsx(saved_results: Sequence[Dict[str, Any]], 
     _write_xlsx(rows, path)
 
 
+def export_request_counts_xlsx(saved_results: Sequence[Dict[str, Any]], path: str) -> None:
+    experiments = _extract_simulation_experiments(saved_results)
+    if not experiments:
+        raise ValueError("Нет корректных JSON-файлов с результатами симуляции")
+
+    experiments.sort(key=lambda item: _capacity_sort_value(item[0]))
+    rows: List[List[Any]] = [[
+        "Суммарная пропускная способность каналов",
+        "Завершенные",
+        "Отказные",
+    ]]
+
+    for config, saved in experiments:
+        served, refused = _request_counts(saved)
+        rows.append([
+            _total_service_capacity(config),
+            served,
+            refused,
+        ])
+
+    _write_xlsx(rows, path)
+
+
 def export_timeline_png(saved: Dict[str, Any], path: str, options: Optional[PngExportOptions] = None) -> None:
     config, requests = _extract_payload(saved)
     opts = options or PngExportOptions()
@@ -161,6 +184,19 @@ def _extract_calculation_experiments(saved_results: Sequence[Dict[str, Any]]) ->
     return experiments
 
 
+def _extract_simulation_experiments(saved_results: Sequence[Dict[str, Any]]) -> List[Tuple[Dict[str, Any], Dict[str, Any]]]:
+    experiments: List[Tuple[Dict[str, Any], Dict[str, Any]]] = []
+    for saved in saved_results:
+        if not isinstance(saved, dict):
+            continue
+        config = saved.get("config")
+        requests = saved.get("requests")
+        summary = saved.get("summary")
+        if isinstance(config, dict) and (isinstance(requests, list) or isinstance(summary, dict)):
+            experiments.append((config, saved))
+    return experiments
+
+
 def _collect_calculation_metric_keys(experiments: Sequence[Tuple[Dict[str, Any], Dict[str, Any]]]) -> List[str]:
     metric_keys: List[str] = []
     seen = set()
@@ -171,6 +207,31 @@ def _collect_calculation_metric_keys(experiments: Sequence[Tuple[Dict[str, Any],
                 seen.add(key_text)
                 metric_keys.append(key_text)
     return metric_keys
+
+
+def _request_counts(saved: Dict[str, Any]) -> Tuple[int, int]:
+    summary = saved.get("summary")
+    if isinstance(summary, dict):
+        served = to_int(summary.get("served"), -1)
+        refused = to_int(summary.get("refused"), -1)
+        if served >= 0 and refused >= 0:
+            return served, refused
+
+    requests = saved.get("requests") or []
+    if not isinstance(requests, list):
+        return 0, 0
+
+    served = 0
+    refused = 0
+    for req in requests:
+        if not isinstance(req, dict):
+            continue
+        if to_float(req.get("t_refuse")) is not None:
+            refused += 1
+        elif to_float(req.get("t_service_end")) is not None:
+            served += 1
+
+    return served, refused
 
 
 def _total_service_capacity(config: Dict[str, Any]) -> Optional[float]:
