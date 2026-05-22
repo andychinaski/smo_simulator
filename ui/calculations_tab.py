@@ -137,6 +137,7 @@ class CalculationsTab(QWidget):
         self._loaded_sim_json: Optional[Dict[str, Any]] = None
         self._last_calc_text: Optional[str] = None
         self._last_calc_payload: Optional[Dict[str, Any]] = None  # enriched json to save
+        self._last_save_dir: Optional[str] = None
 
         layout = QVBoxLayout(self)
 
@@ -629,6 +630,29 @@ class CalculationsTab(QWidget):
 
     # -------- exports --------
 
+    def _default_save_dir(self) -> str:
+        if self._last_save_dir and os.path.isdir(self._last_save_dir):
+            return self._last_save_dir
+        return os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
+
+    def _remember_save_dir(self, path: str) -> None:
+        directory = os.path.dirname(os.path.abspath(path))
+        if directory:
+            self._last_save_dir = directory
+
+    def _calculation_save_path(self, extension: str) -> str:
+        default_stem = "simulation_result_with_calculation"
+        if self.sim_results_path:
+            source_stem = os.path.splitext(os.path.basename(self.sim_results_path))[0]
+            if source_stem.startswith("simulation_result"):
+                default_stem = source_stem.replace(
+                    "simulation_result",
+                    "simulation_result_with_calculation",
+                    1,
+                )
+
+        return os.path.join(self._default_save_dir(), f"{default_stem}.{extension}")
+
     def save_report_txt(self) -> None:
         if not self._last_calc_text:
             QMessageBox.warning(self, "Сохранение", "Сначала выполните расчёт.")
@@ -637,7 +661,7 @@ class CalculationsTab(QWidget):
         path, _ = QFileDialog.getSaveFileName(
             self,
             "Сохранить отчёт в TXT",
-            "calculations_report.txt",
+            self._calculation_save_path("txt"),
             "Text (*.txt)"
         )
         if not path:
@@ -652,6 +676,7 @@ class CalculationsTab(QWidget):
             QMessageBox.critical(self, "Ошибка", f"Не удалось сохранить TXT:\n{e}")
             return
 
+        self._remember_save_dir(path)
         QMessageBox.information(self, "Сохранено", f"Отчёт сохранён:\n{path}")
 
     def save_report_json(self) -> None:
@@ -662,11 +687,10 @@ class CalculationsTab(QWidget):
             QMessageBox.warning(self, "Сохранение", "Не выбран исходный JSON симуляции.")
             return
 
-        default_name = "simulation_results_with_calculations.json"
         path, _ = QFileDialog.getSaveFileName(
             self,
             "Сохранить обогащённый JSON",
-            default_name,
+            self._calculation_save_path("json"),
             "JSON (*.json)"
         )
         if not path:
@@ -681,6 +705,7 @@ class CalculationsTab(QWidget):
             QMessageBox.critical(self, "Ошибка", f"Не удалось сохранить JSON:\n{e}")
             return
 
+        self._remember_save_dir(path)
         QMessageBox.information(self, "Сохранено", f"JSON сохранён:\n{path}")
 
     # совместимость со старым main_window

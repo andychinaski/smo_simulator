@@ -37,7 +37,7 @@ def build_html_from_saved_result(saved: Dict[str, Any]) -> str:
     params_table = build_params_table(config)
     operators_table = build_operators_table(config)
     summary_table = build_summary_table(summary)
-    calculations_html = build_calculations_html(calculations)
+    calculations_html = build_calculations_html(calculations, config, reqs)
 
     tl = render_timeline(config, reqs)
 
