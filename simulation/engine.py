@@ -31,9 +31,11 @@ def simulate(config: Dict[str, Any]) -> SimulationResult:
 
     rng = random.Random(cfg.seed)
 
-    def exp_time(rate: float) -> float:
-        u = 1.0 - rng.random()  # (0, 1]
-        return -math.log(u) / rate
+    def exp_time(rate: float) -> Tuple[float, float]:
+        u = round(1.0 - rng.random(), 3)  # (0, 1], rounded for model calculations/output
+        if u <= 0.0:
+            u = 0.001
+        return -math.log(u) / rate, u
 
     def add_busy_overlap(server_id: int, t_start: float, t_end: float) -> None:
         """
@@ -85,7 +87,8 @@ def simulate(config: Dict[str, Any]) -> SimulationResult:
         r.server_id = server_id
         r.server_name = s.name
 
-        dt = exp_time(s.mu)
+        dt, u = exp_time(s.mu)
+        r.service_rng = u
         push_event(t + dt, "SERVICE_END", (server_id, req_id))
 
     arrivals_count = 0
@@ -101,14 +104,14 @@ def simulate(config: Dict[str, Any]) -> SimulationResult:
         # Не должно произойти, если проверка len(q) < queue_capacity пройдена
         raise RuntimeError("Нет свободного слота очереди")
 
-    def handle_arrival(t: float) -> None:
+    def handle_arrival(t: float, arrival_rng: Optional[float]) -> None:
         nonlocal arrivals_count
 
         if cfg.max_arrivals is not None and arrivals_count >= cfg.max_arrivals:
             return
 
         req_id = len(requests)
-        requests.append(RequestRecord(id=req_id, t_arrival=t))
+        requests.append(RequestRecord(id=req_id, t_arrival=t, arrival_rng=arrival_rng))
         arrivals_count += 1
 
         if free_pool.has_free():
@@ -125,9 +128,10 @@ def simulate(config: Dict[str, Any]) -> SimulationResult:
                 requests[req_id].t_refuse = t
 
         # следующий arrival только до time_end
-        t_next = t + exp_time(lam)
+        dt_next, next_rng = exp_time(lam)
+        t_next = t + dt_next
         if t_next <= time_end:
-            push_event(t_next, "ARRIVAL", None)
+            push_event(t_next, "ARRIVAL", next_rng)
 
     def handle_service_end(t: float, server_id: int, req_id: int) -> None:
         s = servers_by_id[server_id]
@@ -185,7 +189,8 @@ def simulate(config: Dict[str, Any]) -> SimulationResult:
     if cfg.start_at_zero:
         push_event(0.0, "ARRIVAL", None)
     else:
-        push_event(exp_time(lam), "ARRIVAL", None)
+        dt_first, first_rng = exp_time(lam)
+        push_event(dt_first, "ARRIVAL", first_rng)
 
     current_time = 0.0
 
@@ -200,7 +205,7 @@ def simulate(config: Dict[str, Any]) -> SimulationResult:
 
         if kind == "ARRIVAL":
             if t <= time_end:
-                handle_arrival(t)
+                handle_arrival(t, payload)
         else:
             sid, rid = payload
             handle_service_end(t, sid, rid)

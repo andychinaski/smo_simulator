@@ -16,8 +16,10 @@ class QueueSlotEntry:
 class RequestRecord:
     id: int
     t_arrival: float
+    arrival_rng: Optional[float] = None
     t_queue_enter: Optional[float] = None
     t_service_start: Optional[float] = None
+    service_rng: Optional[float] = None
     server_id: Optional[int] = None
     server_name: Optional[str] = None
     t_service_end: Optional[float] = None

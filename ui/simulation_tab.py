@@ -165,8 +165,10 @@ class SimulationTab(QWidget):
             reqs.append({
                 "id": r.id,
                 "t_arrival": r.t_arrival,
+                "arrival_rng": r.arrival_rng,
                 "t_queue_enter": r.t_queue_enter,
                 "t_service_start": r.t_service_start,
+                "service_rng": r.service_rng,
                 "server_id": r.server_id,
                 "server_name": r.server_name,
                 "t_service_end": r.t_service_end,

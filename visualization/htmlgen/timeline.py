@@ -226,8 +226,11 @@ def render_timeline(config: Dict[str, Any], reqs: List[Dict[str, Any]]) -> Timel
     for rid, t in arrivals:
         cx = x(t)
         label = str(rid + 1)
+        req = id_to_req.get(rid, {})
+        arrival_rng = to_float(req.get("arrival_rng"))
+        rng_text = f", ГСЧ={arrival_rng:.3f}" if arrival_rng is not None else ""
         svg_parts.append(svg_circle(cx, yy_arr, 5, fill="#8aa8ff", stroke="#2546b8",
-                                    title=f"Заявка {label}: поступление t={t:.6f}", css_class="no-xscale"))
+                                    title=f"Заявка {label}: поступление t={t:.6f}{rng_text}", css_class="no-xscale"))
         svg_parts.append(svg_text(cx, yy_arr - 11, label, size=10, anchor="middle", fill="#222", css_class="no-xscale"))
 
     for sname, rid, t0, t1 in service_segments:
@@ -239,8 +242,11 @@ def render_timeline(config: Dict[str, Any], reqs: List[Dict[str, Any]]) -> Timel
         x0 = x(t0)
         x1 = x(t1)
         label = str(rid + 1)
+        req = id_to_req.get(rid, {})
+        service_rng = to_float(req.get("service_rng"))
+        rng_text = f"\nГСЧ={service_rng:.3f}" if service_rng is not None else ""
         svg_parts.append(svg_rect(x0, yy0, x1 - x0, SEG_H, fill="#b6e3a8", stroke="#3a7a2a", rx=4,
-                                  title=f"Заявка {label} — обслуживание на «{sname}»\nstart={t0:.6f}, end={t1:.6f}"))
+                                  title=f"Заявка {label} — обслуживание на «{sname}»\nstart={t0:.6f}, end={t1:.6f}{rng_text}"))
         svg_parts.append(svg_text((x0 + x1) / 2, yy0 + SEG_H - 2, label, size=10, anchor="middle",
                                   fill="#0f3b0f", css_class="no-xscale"))
 

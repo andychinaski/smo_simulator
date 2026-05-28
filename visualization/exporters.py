@@ -18,6 +18,10 @@ DONE_LANE = "Завершено обслуживание"
 REFUSE_LANE = "Отказ"
 
 
+ARRIVAL_RNG_LANE = "ГСЧ поступления"
+SERVICE_RNG_PREFIX = "ГСЧ обслуживания: "
+
+
 @dataclass(frozen=True)
 class PngExportOptions:
     image_width: int = 1300
@@ -271,8 +275,10 @@ def _build_lanes(config: Dict[str, Any], requests: List[Dict[str, Any]]) -> List
         if name not in server_names:
             server_names.append(name)
 
-    lanes = [ARRIVAL_LANE]
-    lanes.extend(f"Канал: {name}" for name in server_names)
+    lanes = [ARRIVAL_LANE, ARRIVAL_RNG_LANE]
+    for name in server_names:
+        lanes.append(f"Канал: {name}")
+        lanes.append(f"{SERVICE_RNG_PREFIX}{name}")
     lanes.extend(f"Очередь — место {i}" for i in range(1, max(0, queue_size) + 1))
     lanes.append(DONE_LANE)
     lanes.append(REFUSE_LANE)
@@ -325,6 +331,8 @@ def _queue_slot_enter_times(
 def _time_for_lane(lane: str, req: Dict[str, Any], queue_time: Optional[float]) -> Optional[float]:
     if lane == ARRIVAL_LANE:
         return to_float(req.get("t_arrival"))
+    if lane == ARRIVAL_RNG_LANE:
+        return to_float(req.get("arrival_rng"))
     if lane == DONE_LANE:
         return to_float(req.get("t_service_end"))
     if lane == REFUSE_LANE:
@@ -333,6 +341,11 @@ def _time_for_lane(lane: str, req: Dict[str, Any], queue_time: Optional[float]) 
         server_name = lane[len("Канал: "):]
         if str(req.get("server_name") or "") == server_name:
             return to_float(req.get("t_service_start"))
+        return None
+    if lane.startswith(SERVICE_RNG_PREFIX):
+        server_name = lane[len(SERVICE_RNG_PREFIX):]
+        if str(req.get("server_name") or "") == server_name:
+            return to_float(req.get("service_rng"))
         return None
     if lane.startswith("Очередь — место "):
         return queue_time
